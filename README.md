@@ -11,3 +11,50 @@ El objetivo general de la intervención es diseñar e implementar una solución 
 Para el desarrollo de esta solución, se cuenta con diversos datos disponibles o potencialmente accesibles, tales como el catálogo de productos (incluyendo características técnicas, precios y disponibilidad), historial de consultas de clientes, registros de compras, preguntas frecuentes  y datos de comportamiento de navegación dentro del sitio web. Estos datos pueden ser utilizados para implementar técnicas de inteligencia artificial como modelos de lenguaje  y sistemas de recuperación de información , permitiendo generar respuestas más precisas, contextualizadas y útiles para el usuario.
 
 Finalmente, la solución debe considerar ciertas restricciones y requerimientos, tales como la integración con la plataforma web existente de la empresa, la protección de datos personales de los clientes, el cumplimiento de normativas vigentes, la necesidad de respuestas en tiempo real y la escalabilidad del sistema. Asimismo, se debe buscar un equilibrio entre eficiencia y costos, asegurando que la implementación sea viable y sostenible en el tiempo.
+
+
+Apartado evaluacion 2.
+
+
+#  Agente Inteligente de Ventas PC Factory
+
+##  Descripción
+
+Proyecto desarrollado con LangChain y LangGraph que implementa un agente inteligente capaz de:
+
+- Consultar productos
+- Recomendar alternativas
+- Mantener memoria conversacional
+- Automatizar compras
+- Enviar facturas por correo SMTP
+
+El sistema utiliza herramientas, recuperación semántica (RAG) y toma de decisiones adaptativas para automatizar procesos de atención y ventas.
+
+---
+
+#  Tecnologías Utilizadas
+
+- Python
+- LangChain
+- LangGraph
+- OpenAI API
+- NumPy
+- SMTP
+- dotenv
+
+---
+
+# Arquitectura General
+
+```text
+Usuario
+   ↓
+Agente LangChain
+   ↓
+Herramientas
+   ├── Consulta productos
+   ├── RAG / Embeddings
+   ├── Memoria
+   └── SMTP
+   ↓
+Base de datos

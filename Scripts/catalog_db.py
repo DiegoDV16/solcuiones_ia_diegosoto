@@ -289,6 +289,95 @@ def simulate_order(branch_code: str, items: List[Tuple[str, int]], cliente_nombr
         }
 
 
+def create_order(branch_id: int, items: List[Tuple[str, int]], cliente_nombre: Optional[str] = None) -> int:
+    if not items:
+        raise ValueError("Debes indicar al menos un artículo y su cantidad.")
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("PRAGMA foreign_keys = ON;")
+
+        total = 0
+        for sku, cantidad in items:
+            if cantidad <= 0:
+                raise ValueError("La cantidad debe ser mayor a cero.")
+
+            producto = cur.execute(
+                "SELECT precio_lista, descuento_efectivo FROM products WHERE sku = ?",
+                (sku,),
+            ).fetchone()
+            if not producto:
+                raise ValueError(f"Producto no encontrado: {sku}")
+
+            inventario = cur.execute(
+                "SELECT cantidad FROM inventory WHERE branch_id = ? AND sku = ?",
+                (branch_id, sku),
+            ).fetchone()
+            cantidad_disponible = inventario['cantidad'] if inventario else 0
+            if cantidad_disponible < cantidad:
+                raise ValueError(
+                    f"Stock insuficiente para {sku} en la sucursal {branch_id}: disponible {cantidad_disponible}, pediste {cantidad}."
+                )
+
+            subtotal = int(producto['precio_lista'] * cantidad * (1 - producto['descuento_efectivo']))
+            total += subtotal
+
+        cur.execute(
+            "INSERT INTO orders (branch_id, cliente_nombre, total) VALUES (?, ?, ?)",
+            (branch_id, cliente_nombre, total),
+        )
+        order_id = cur.lastrowid
+
+        for sku, cantidad in items:
+            producto = cur.execute(
+                "SELECT precio_lista, descuento_efectivo FROM products WHERE sku = ?",
+                (sku,),
+            ).fetchone()
+            cur.execute(
+                "INSERT INTO order_items (order_id, sku, cantidad, precio_unitario, descuento) VALUES (?, ?, ?, ?, ?)",
+                (order_id, sku, cantidad, producto['precio_lista'], producto['descuento_efectivo']),
+            )
+            cur.execute(
+                "UPDATE inventory SET cantidad = cantidad - ? WHERE branch_id = ? AND sku = ?",
+                (cantidad, branch_id, sku),
+            )
+
+        conn.commit()
+        return order_id
+
+
+def get_order_details(order_id: int) -> Dict[str, Any]:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        order = cur.execute(
+            "SELECT o.id, o.fecha, o.cliente_nombre, o.total, b.codigo AS branch_codigo, b.nombre AS branch_nombre, r.nombre AS region, m.nombre AS comuna, b.direccion "
+            "FROM orders o "
+            "JOIN branches b ON o.branch_id = b.id "
+            "JOIN regions r ON b.region_id = r.id "
+            "JOIN comunas m ON b.comuna_id = m.id "
+            "WHERE o.id = ?",
+            (order_id,),
+        ).fetchone()
+        if not order:
+            raise ValueError(f"Orden no encontrada: {order_id}")
+
+        items = cur.execute(
+            "SELECT oi.sku, oi.cantidad, oi.precio_unitario, oi.descuento, p.nombre AS producto "
+            "FROM order_items oi "
+            "JOIN products p ON oi.sku = p.sku "
+            "WHERE oi.order_id = ?",
+            (order_id,),
+        ).fetchall()
+
+        return {
+            'order': dict(order),
+            'items': [dict(item) for item in items],
+        }
+
+
 def create_order_by_branch_code(branch_code: str, items: List[Tuple[str, int]], cliente_nombre: Optional[str] = None) -> int:
     branch = get_branch_by_code(branch_code)
     if not branch:
