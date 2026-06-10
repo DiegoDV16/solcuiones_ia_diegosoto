@@ -1,0 +1,718 @@
+import sys
+import os
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+load_dotenv(ROOT / ".env")
+
+router = APIRouter(tags=["chat"])
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = "default"
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    session_id: str
+
+
+try:
+    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+    from langchain_core.tools import tool
+    from langchain.agents import create_react_agent
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain_core.chat_history import InMemoryChatMessageHistory
+    import numpy as np
+
+    import importlib
+    import Scripts.catalog_db as catalog_db
+    importlib.reload(catalog_db)
+    from Scripts.catalog_db import (
+        query_product_db,
+        get_all_skus,
+        list_branches,
+        create_order_by_branch_code,
+        get_order_details,
+    )
+
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("OPENAI_BASE_URL", "https://models.inference.ai.azure.com")
+
+    _HAS_LLM = bool(token)
+    _chat_llm = None
+    _app_agent = None
+    _store: dict[str, InMemoryChatMessageHistory] = {}
+
+    if _HAS_LLM:
+        _chat_llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            api_key=token,
+            base_url=base_url,
+            temperature=0.1,
+        )
+
+        _embeddings = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            api_key=token,
+            base_url=base_url,
+        )
+
+        _doc = (
+            "Notebook ideal para programación y gaming: Mínimo 16GB RAM, SSD 512GB, "
+            "GPU RTX 3050+. En Chile (PC Factory): Gama media: 600.000 - 900.000 CLP. "
+            "Gama alta: 900.000 - 1.500.000 CLP."
+        )
+        _chunks = [_doc[i:i+200] for i in range(0, len(_doc), 200)]
+        _vectors = [{"texto": ch, "embedding": _embeddings.embed_query(ch)} for ch in _chunks]
+
+        def _similarity(a, b):
+            return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+        def _get_context(query: str) -> str:
+            eq = _embeddings.embed_query(query)
+            ranked = sorted(
+                [(s, t) for t in _vectors if (s := _similarity(eq, t["embedding"]))],
+                reverse=True,
+            )
+            return ranked[0][1]["texto"] if ranked else ""
+
+        def _format_currency(v: int) -> str:
+            return f"${v:,} CLP"
+
+        def _find_keyword(text: str, candidates: list) -> str | None:
+            upper = text.upper()
+            for c in candidates:
+                if c.upper() in upper:
+                    return c
+            return None
+
+        import re
+
+        @tool
+        def revisar_requisitos_teoricos_notebooks(consulta: str) -> str:
+            """Usa esta herramienta cuando el usuario pida recomendaciones generales sobre notebooks."""
+            return _get_context(consulta)
+
+        @tool
+        def consultar_producto_avanzado(termino_busqueda: str) -> str:
+            """Busca un producto en la base de datos usando su SKU o palabras clave de su nombre."""
+            query = termino_busqueda.strip()
+            if not query:
+                return "Por favor, proporciona un término de búsqueda válido."
+
+            sku, producto = query_product_db(query)
+
+            if not producto or producto.get("total_stock", 0) == 0:
+                lines = []
+                if not producto:
+                    lines.append(f"El producto exacto '{termino_busqueda}' no figura en el catálogo.")
+                else:
+                    lines.append(f"'{producto['nombre']}' ({sku}) se encuentra agotado.")
+                lines.append("\nALTERNATIVAS DISPONIBLES:")
+                all_skus = get_all_skus()
+                es_cpu = any(w in query.lower() for w in ["ryzen", "intel", "cpu", "procesador"])
+                es_gpu = any(w in query.lower() for w in ["rtx", "gpu", "video", "nvidia", "amd"])
+                alts = []
+                for s in all_skus:
+                    _, pi = query_product_db(s)
+                    if pi and pi.get("total_stock", 0) > 0:
+                        if es_cpu and "CPU" in s:
+                            alts.append((s, pi))
+                        elif es_gpu and "GPU" in s:
+                            alts.append((s, pi))
+                    if len(alts) >= 3:
+                        break
+                if not alts:
+                    for s in all_skus[:4]:
+                        _, pi = query_product_db(s)
+                        if pi and pi.get("total_stock", 0) > 0:
+                            alts.append((s, pi))
+                for i, (s, info) in enumerate(alts, 1):
+                    lines.append(f"{i}. **{s}** - {info['nombre']} | {_format_currency(info['precio_lista'])}")
+                return "\n".join(lines)
+
+            pl = producto["precio_lista"]
+            desc = producto["descuento_efectivo"]
+            pe = pl - int(pl * desc)
+            lines = [
+                f"DATOS DEL CATÁLOGO ({sku}):",
+                f"- Componente: {producto['nombre']}",
+                f"- Precio Lista: {_format_currency(pl)}",
+                f"- Precio Efectivo: {_format_currency(pe)} ({int(desc * 100)}% descuento)",
+                f"- Stock Consolidado: {producto['total_stock']} unidades.",
+            ]
+            for item in producto.get("inventory", []):
+                lines.append(f"  - [{item['branch_codigo']}] {item['branch_nombre']}: {item['cantidad']} uds.")
+            return "\n".join(lines)
+
+        @tool
+        def confirmar_compra_por_correo(orden_texto: str) -> str:
+            """Procesa la compra real y descuenta stock."""
+            texto = orden_texto.strip()
+            candidates = [b["codigo"] for b in list_branches()]
+            sku_candidates = get_all_skus()
+            branch_code = _find_keyword(texto, candidates)
+            sku = _find_keyword(texto, sku_candidates)
+            cm = re.search(r"(\d+)", texto)
+            cantidad = int(cm.group(1)) if cm else 1
+            recipient = os.getenv("GMAIL_REMITENTE", "cliente@example.com")
+            if not branch_code or not sku:
+                return "No pude procesar. Indica sucursal (ej: SCL-CENTRO) y SKU."
+            try:
+                oid = create_order_by_branch_code(branch_code, [(sku, cantidad)], "Cliente Web")
+                info = get_order_details(oid)
+            except ValueError as e:
+                return f"Error: {e}"
+            total = _format_currency(info["order"]["total"])
+            return (
+                f"VENTA CONFIRMADA - Orden #{info['order']['id']}\n"
+                f"Retiro: {branch_code}\n"
+                f"Total: {total}\n"
+                f"Factura enviada a: {recipient}"
+            )
+
+        tools = [revisar_requisitos_teoricos_notebooks, consultar_producto_avanzado, confirmar_compra_por_correo]
+
+        prompt = """Eres el asesor virtual de PC Factory Chile. Tu objetivo es vender.
+Usa tus herramientas para buscar productos, sugerir alternativas y procesar compras.
+Si un producto no está disponible, ofrece alternativas reales del catálogo.
+Si el cliente acepta una alternativa, llama confirmar_compra_por_correo con el SKU y la sucursal.
+Formatea precios en pesos chilenos ($999,990 CLP)."""
+
+        _app_agent = create_react_agent(_chat_llm, tools, prompt=prompt)
+
+    def _get_history(sid: str):
+        if sid not in _store:
+            _store[sid] = InMemoryChatMessageHistory()
+        return _store[sid]
+
+except ImportError:
+    _HAS_LLM = False
+
+_fallback_store: dict[str, dict] = {}
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(req: ChatRequest):
+    if not _HAS_LLM or _app_agent is None:
+        return _fallback_chat(req.message, req.session_id)
+
+    history = _get_history(req.session_id)
+    history.add_user_message(req.message)
+    try:
+        result = _app_agent.invoke(
+            {"messages": history.messages},
+            {"configurable": {"thread_id": req.session_id}},
+        )
+        reply = result["messages"][-1].content
+        history.add_ai_message(reply)
+        return ChatResponse(reply=reply, session_id=req.session_id)
+    except Exception as e:
+        return ChatResponse(reply=f"Error: {str(e)}", session_id=req.session_id)
+
+
+@router.post("/chat/reset")
+async def reset_chat(session_id: str = "default"):
+    if session_id in _store:
+        _store[session_id].clear()
+    return {"status": "reset"}
+
+
+def _fallback_chat(message: str, session_id: str) -> ChatResponse:
+    import sqlite3
+    db_path = ROOT / "Scripts" / "catalogo_pc_factory.db"
+    msg = message.lower().strip()
+
+    if session_id not in _fallback_store:
+        _fallback_store[session_id] = {}
+    memory = _fallback_store[session_id]
+
+    reply = ""
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+
+            CATEGORY_KEYWORDS = {
+                1: ["procesador", "cpu"],
+                2: ["gpu", "video", "rtx", "tarjeta grafica", "grafica", "nvidia", "radeon"],
+                3: ["ram", "memoria", "ddr4", "ddr5"],
+                4: ["almacenamiento", "disco", "ssd", "hdd", "nvm"],
+                5: ["placa madre", "placa", "motherboard", "mother"],
+                6: ["accesorio", "cable", "hdmi", "adaptador"],
+                7: ["monitor", "pantalla"],
+                8: ["periferico", "teclado", "mouse", "raton", "audifono", "auricular", "g203", "g502", "g413", "k552"],
+                9: ["fuente", "psu", "power supply"],
+                10: ["gabinete", "case", "chasis"],
+                11: ["refrigeracion", "cooler", "ventilador", "liquida"],
+            }
+
+            CATEGORY_NAMES = {
+                1: "Procesadores",
+                2: "Tarjetas de Video",
+                3: "Memorias RAM",
+                4: "Almacenamiento",
+                5: "Placas Madre",
+                6: "Accesorios",
+                7: "Monitores",
+                8: "Periféricos",
+                9: "Fuentes de Poder",
+                10: "Gabinetes",
+                11: "Refrigeración",
+            }
+
+            def _match_category(text: str) -> int | None:
+                for cid, keywords in CATEGORY_KEYWORDS.items():
+                    for kw in keywords:
+                        if kw in text:
+                            return cid
+                return None
+
+            def _format_product_stock(r) -> str:
+                inv_rows = conn.execute(
+                    "SELECT b.codigo, i.cantidad FROM inventory i JOIN branches b ON i.branch_id = b.id WHERE i.sku = ? AND i.cantidad > 0 ORDER BY i.cantidad DESC",
+                    (r["sku"],),
+                ).fetchall()
+                stock_total = sum(i["cantidad"] for i in inv_rows)
+                stock_str = f"Stock: {stock_total} uds."
+                if inv_rows:
+                    branches_detail = ", ".join(f"{i['codigo']}: {i['cantidad']}" for i in inv_rows[:3])
+                    stock_str += f" ({branches_detail}{'...' if len(inv_rows) > 3 else ''})"
+                return stock_str
+
+            def _get_effective_price(sku: str) -> int:
+                row = conn.execute("SELECT precio_lista, descuento_efectivo FROM products WHERE sku=?", (sku,)).fetchone()
+                if row:
+                    return row["precio_lista"] - int(row["precio_lista"] * row["descuento_efectivo"])
+                return 0
+
+            def _list_category_cheapest_first(cat_id: int, exclude_skus: set = None) -> list[dict]:
+                exclude_skus = exclude_skus or set()
+                rows = conn.execute(
+                    "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista ASC",
+                    (cat_id,),
+                ).fetchall()
+                result = []
+                for r in rows:
+                    if r["sku"] not in exclude_skus:
+                        ep = _get_effective_price(r["sku"])
+                        result.append({**dict(r), "precio_efectivo": ep})
+                return result
+
+            PLATFORMS = [
+                {
+                    "name": "AMD AM4",
+                    "cpus": ["CPU-AMD-R5-5600X", "CPU-AMD-R7-5700X"],
+                    "mbs": ["MB-MSI-B550M"],
+                    "ram_type": "DDR4",
+                },
+                {
+                    "name": "AMD AM5",
+                    "cpus": ["CPU-AMD-R7-7800X3D"],
+                    "mbs": ["MB-GIGABYTE-B650"],
+                    "ram_type": "DDR5",
+                },
+                {
+                    "name": "Intel LGA1700",
+                    "cpus": ["CPU-INTEL-I3-12100F", "CPU-INTEL-I5-12400F", "CPU-INTEL-I5-14600K", "CPU-INTEL-I7-14700K"],
+                    "mbs": ["MB-ASUS-H610M", "MB-ASUS-B760M"],
+                    "ram_type": "DDR4",
+                },
+            ]
+
+            def _build_pc_by_budget(budget: int, conn, memory) -> str:
+                CATEGORY_MAP = {"CPU": 1, "GPU": 2, "RAM": 3, "Storage": 4, "Motherboard": 5, "PSU": 9, "Case": 10, "Cooler": 11}
+                COMPONENT_ORDER = ["CPU", "Motherboard", "RAM", "GPU", "Storage", "PSU", "Case", "Cooler"]
+                LABELS = {"CPU": "CPU", "Motherboard": "Placa Madre", "RAM": "RAM", "GPU": "Tarjeta de Video", "Storage": "Almacenamiento", "PSU": "Fuente de Poder", "Case": "Gabinete", "Cooler": "Refrigeración"}
+
+                best_build = None
+                best_total = 0
+
+                for platform in PLATFORMS:
+                    used_skus = set()
+                    build = {}
+                    remaining = budget
+                    platform_valid = True
+
+                    for comp in COMPONENT_ORDER:
+                        if comp == "Motherboard":
+                            available_mbs = []
+                            for mb_sku in platform["mbs"]:
+                                if mb_sku not in used_skus:
+                                    ep = _get_effective_price(mb_sku)
+                                    available_mbs.append((mb_sku, ep))
+                            available_mbs.sort(key=lambda x: x[1], reverse=True)
+                            chosen = None
+                            for sku, ep in available_mbs:
+                                if ep <= remaining:
+                                    chosen = (sku, ep)
+                                    break
+                            if not chosen and available_mbs:
+                                chosen = available_mbs[-1]
+                            if chosen:
+                                used_skus.add(chosen[0])
+                                build[comp] = {"sku": chosen[0], "precio": chosen[1]}
+                                remaining -= chosen[1]
+                            else:
+                                platform_valid = False
+                                break
+
+                        elif comp == "CPU":
+                            available_cpus = []
+                            for cpu_sku in platform["cpus"]:
+                                if cpu_sku not in used_skus:
+                                    ep = _get_effective_price(cpu_sku)
+                                    available_cpus.append((cpu_sku, ep))
+                            available_cpus.sort(key=lambda x: x[1], reverse=True)
+                            chosen = None
+                            for sku, ep in available_cpus:
+                                if ep <= remaining:
+                                    chosen = (sku, ep)
+                                    break
+                            if not chosen and available_cpus:
+                                chosen = available_cpus[-1]
+                            if chosen:
+                                used_skus.add(chosen[0])
+                                build[comp] = {"sku": chosen[0], "precio": chosen[1]}
+                                remaining -= chosen[1]
+                            else:
+                                platform_valid = False
+                                break
+
+                        elif comp == "RAM":
+                            ram_type = platform["ram_type"]
+                            ram_rows = conn.execute(
+                                "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=3 ORDER BY precio_lista ASC"
+                            ).fetchall()
+                            available_ram = []
+                            for r in ram_rows:
+                                if r["sku"] not in used_skus:
+                                    name_lower = r["nombre"].lower()
+                                    if ram_type == "DDR4" and "ddr4" in name_lower:
+                                        ep = _get_effective_price(r["sku"])
+                                        available_ram.append((r["sku"], ep))
+                                    elif ram_type == "DDR5" and "ddr5" in name_lower:
+                                        ep = _get_effective_price(r["sku"])
+                                        available_ram.append((r["sku"], ep))
+                            available_ram.sort(key=lambda x: x[1], reverse=True)
+                            chosen = None
+                            for sku, ep in available_ram:
+                                if ep <= remaining:
+                                    chosen = (sku, ep)
+                                    break
+                            if not chosen and available_ram:
+                                chosen = available_ram[-1]
+                            if chosen:
+                                used_skus.add(chosen[0])
+                                build[comp] = {"sku": chosen[0], "precio": chosen[1]}
+                                remaining -= chosen[1]
+                            else:
+                                platform_valid = False
+                                break
+
+                        else:
+                            cat_id = CATEGORY_MAP[comp]
+                            avail = _list_category_cheapest_first(cat_id, used_skus)
+                            avail.sort(key=lambda x: x["precio_efectivo"], reverse=True)
+                            chosen = None
+                            for item in avail:
+                                if item["precio_efectivo"] <= remaining:
+                                    chosen = item
+                                    break
+                            if not chosen and avail:
+                                chosen = avail[-1]
+                            if chosen:
+                                used_skus.add(chosen["sku"])
+                                build[comp] = {"sku": chosen["sku"], "precio": chosen["precio_efectivo"]}
+                                remaining -= chosen["precio_efectivo"]
+                            else:
+                                if comp in ["Cooler", "Case"]:
+                                    continue
+                                platform_valid = False
+                                break
+
+                    if platform_valid:
+                        total = budget - remaining
+                        if total > best_total:
+                            best_total = total
+                            best_build = build
+                            best_build["platform"] = platform["name"]
+                            best_build["total"] = total
+                            best_build["remaining"] = remaining
+
+                if not best_build:
+                    return f"Lo siento, con un presupuesto de ${budget:,} CLP no es posible armar una PC completa con los componentes disponibles. El mínimo sugerido es de aproximadamente $400,000 CLP."
+
+                lines = [f"**PC Armada - {best_build['platform']}**\n"]
+                lines.append(f"Presupuesto: ${budget:,} CLP")
+                lines.append(f"Total: ${best_build['total']:,} CLP")
+                if best_build['remaining'] > 0:
+                    lines.append(f"Sobrante: ${best_build['remaining']:,} CLP")
+                lines.append("")
+                for comp in COMPONENT_ORDER:
+                    if comp in best_build:
+                        info = best_build[comp]
+                        sku = info["sku"]
+                        name_row = conn.execute("SELECT nombre FROM products WHERE sku=?", (sku,)).fetchone()
+                        name = name_row["nombre"] if name_row else sku
+                        lines.append(f"• **{LABELS[comp]}:** {name} - ${info['precio']:,} CLP")
+                lines.append("")
+                lines.append("¿Te gustaría comprar esta configuración? Indica la sucursal para procesar el pedido.")
+
+                memory["last_build"] = best_build
+                return "\n".join(lines)
+
+            greeting_words = ["hola", "buenas", "buen dia", "buena tarde", "buena noche", "saludos", "hey", "que tal"]
+            if any(g in msg for g in greeting_words) and len(msg) < 40:
+                memory.clear()
+                reply = (
+                    "¡Hola! Soy TechAssist de PC Factory.\n\n"
+                    "Puedo ayudarte con:\n"
+                    "• Buscar productos por categoría (procesadores, GPUs, RAM, etc.)\n"
+                    "• Consultar stock disponible\n"
+                    "• Ver productos en oferta\n"
+                    "• Recomendaciones de armado\n\n"
+                    "¿Qué estás buscando el día de hoy?"
+                )
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            wants_cheapest = any(p in msg for p in ["mas barato", "más barato", "más económico", "mas economico", "menor precio", "menos precio", "mas economico"])
+            wants_expensive = any(p in msg for p in ["mas caro", "más caro", "mayor precio", "más costoso", "mas costoso", "mas caro"])
+            wants_sin_descuento = "sin descuento" in msg or "precio lista" in msg or "precio normal" in msg or "sin dcto" in msg
+            wants_con_descuento = "con descuento" in msg or "en oferta" in msg or "con dcto" in msg
+
+            if wants_cheapest or wants_expensive:
+                cat_id = _match_category(msg)
+                if cat_id is None:
+                    cat_id = memory.get("last_category")
+
+                price_col = "precio_lista" if wants_sin_descuento else "(precio_lista - CAST(precio_lista * descuento_efectivo AS INT))"
+                order = "ASC" if wants_cheapest else "DESC"
+                label = "más barato" if wants_cheapest else "más caro"
+                filter_clause = "AND descuento_efectivo = 0" if wants_sin_descuento else ""
+                filter_clause += " AND descuento_efectivo > 0" if wants_con_descuento else ""
+
+                if cat_id:
+                    query = f"""
+                        SELECT sku, nombre, precio_lista, descuento_efectivo,
+                               (precio_lista - CAST(precio_lista * descuento_efectivo AS INT)) AS precio_final
+                        FROM products
+                        WHERE category_id = ? {filter_clause}
+                        ORDER BY precio_final {order}
+                        LIMIT 1
+                    """
+                    row = conn.execute(query, (cat_id,)).fetchone()
+                    cat_name = CATEGORY_NAMES.get(cat_id, "Productos")
+                else:
+                    query = f"""
+                        SELECT sku, nombre, precio_lista, descuento_efectivo,
+                               (precio_lista - CAST(precio_lista * descuento_efectivo AS INT)) AS precio_final
+                        FROM products
+                        WHERE 1=1 {filter_clause}
+                        ORDER BY precio_final {order}
+                        LIMIT 1
+                    """
+                    row = conn.execute(query).fetchone()
+                    cat_name = "Productos"
+
+                if row:
+                    desc = row["descuento_efectivo"]
+                    price_str = f"${row['precio_lista']:,} CLP"
+                    if desc > 0:
+                        pe = row["precio_lista"] - int(row["precio_lista"] * desc)
+                        price_str = f"~~${row['precio_lista']:,}~~ **${pe:,} CLP** ({int(desc*100)}% dcto)"
+                    stock_info = _format_product_stock(row)
+                    desc_label = " (sin descuento)" if wants_sin_descuento else (" (con descuento)" if wants_con_descuento else "")
+                    reply = (
+                        f"**{cat_name}: El {label}{desc_label}**\n\n"
+                        f"- {row['nombre']} - {price_str} | {stock_info}"
+                    )
+                else:
+                    reply = f"No encontré productos que coincidan con tu búsqueda."
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            if "oferta" in msg or "descuento" in msg or "promo" in msg:
+                rows = conn.execute(
+                    "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE descuento_efectivo > 0 ORDER BY descuento_efectivo DESC"
+                ).fetchall()
+                if rows:
+                    lines = ["**Productos en Oferta:**\n"]
+                    for r in rows:
+                        desc = int(r["descuento_efectivo"] * 100)
+                        pe = r["precio_lista"] - int(r["precio_lista"] * r["descuento_efectivo"])
+                        lines.append(
+                            f"- {r['nombre']}  ~~${r['precio_lista']:,}~~  **${pe:,} CLP** ({desc}% dcto)"
+                        )
+                    reply = "\n".join(lines)
+                else:
+                    reply = "Actualmente no hay productos con descuento activo."
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            if "barato" in msg or "mejor precio" in msg:
+                row = conn.execute("""
+                    SELECT sku, nombre, precio_lista, descuento_efectivo,
+                           (precio_lista - CAST(precio_lista * descuento_efectivo AS INT)) AS precio_final
+                    FROM products ORDER BY precio_final ASC LIMIT 1
+                """).fetchone()
+                desc = row["descuento_efectivo"]
+                price_str = f"${row['precio_lista']:,} CLP"
+                if desc > 0:
+                    pe = row["precio_lista"] - int(row["precio_lista"] * desc)
+                    price_str = f"~~${row['precio_lista']:,}~~ **${pe:,} CLP** ({int(desc*100)}% dcto)"
+                stock_info = _format_product_stock(row)
+                reply = (
+                    f"**Producto más barato del catálogo:**\n\n"
+                    f"- {row['nombre']} - {price_str} | {stock_info}"
+                )
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            wants_budget = any(p in msg for p in ["presupuesto", "armar", "arma una pc", "arma un pc", "armame", "build", "configuracion", "configuración", "arreglo"])
+            if wants_budget or "presupuesto" in msg or "presupuesto de" in msg:
+                import re
+                budget_match = re.search(r"(\d[\d.]*)", msg.replace(",", ""))
+                budget = None
+                if budget_match:
+                    raw = budget_match.group(1).replace(".", "")
+                    try:
+                        budget = int(raw)
+                    except ValueError:
+                        pass
+
+                if budget and budget >= 100000:
+                    reply = _build_pc_by_budget(budget, conn, memory)
+                    return ChatResponse(reply=reply, session_id=session_id)
+                elif budget and budget < 100000:
+                    reply = f"Con un presupuesto de ${budget:,} CLP es muy limitado. El mínimo recomendado para un PC es de $200,000 CLP aproximadamente."
+                    return ChatResponse(reply=reply, session_id=session_id)
+                else:
+                    reply = "¿Cuál es tu presupuesto? Dime un monto como '300000' o '500 mil' y armaré una PC compatible."
+                    return ChatResponse(reply=reply, session_id=session_id)
+
+            wants_stock = "stock" in msg
+            wants_stock_detail = "stock" in msg and ("de " in msg or len(msg) < 30)
+
+            if wants_stock:
+                cat_id = _match_category(msg.replace("stock", ""))
+                if cat_id is None and "stock" in msg:
+                    cat_id = _match_category(msg)
+
+                if wants_stock_detail and cat_id:
+                    rows = conn.execute(
+                        "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista",
+                        (cat_id,),
+                    ).fetchall()
+                    cat_name = CATEGORY_NAMES[cat_id]
+                    if rows:
+                        lines = [f"**Stock de {cat_name}:**\n"]
+                        for r in rows:
+                            stock_info = _format_product_stock(r)
+                            lines.append(f"- {r['nombre']} -- {stock_info}")
+                        reply = "\n".join(lines)
+                        memory["last_category"] = cat_id
+                        return ChatResponse(reply=reply, session_id=session_id)
+
+                if wants_stock and not wants_stock_detail and memory.get("last_category") is not None:
+                    cat_id = memory["last_category"]
+                    rows = conn.execute(
+                        "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista",
+                        (cat_id,),
+                    ).fetchall()
+                    cat_name = CATEGORY_NAMES[cat_id]
+                    if rows:
+                        lines = [f"**Stock de {cat_name}:**\n"]
+                        for r in rows:
+                            stock_info = _format_product_stock(r)
+                            lines.append(f"- {r['nombre']} -- {stock_info}")
+                        reply = "\n".join(lines)
+                        return ChatResponse(reply=reply, session_id=session_id)
+
+                total = conn.execute("SELECT SUM(cantidad) AS s FROM inventory").fetchone()["s"]
+                products_count = conn.execute("SELECT COUNT(*) AS c FROM products").fetchone()["c"]
+                branches = conn.execute("SELECT COUNT(*) AS c FROM branches").fetchone()["c"]
+                low_stock = conn.execute(
+                    "SELECT COUNT(*) AS c FROM (SELECT sku FROM inventory GROUP BY sku HAVING SUM(cantidad) < 5)"
+                ).fetchone()["c"]
+                reply = (
+                    f"**Resumen de Stock PC Factory**\n\n"
+                    f"• Total productos: {products_count}\n"
+                    f"• Unidades en inventario: {total:,}\n"
+                    f"• Sucursales activas: {branches}\n"
+                    f"• Productos con stock bajo (<5 uds): {low_stock}\n\n"
+                    f"Para ver stock por producto, pregúntame por una categoría o producto específico."
+                )
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            if "todo" in msg or "categoria" in msg or "list" in msg or "categoría" in msg:
+                lines = ["**Categorias Disponibles:**\n"]
+                for cid, cname in CATEGORY_NAMES.items():
+                    count = conn.execute(
+                        "SELECT COUNT(*) AS c FROM products WHERE category_id=?", (cid,)
+                    ).fetchone()["c"]
+                    lines.append(f"• **{cname}** ({count} productos)")
+                lines.append("\n_Pregúntame por cualquier categoría para ver sus productos._")
+                reply = "\n".join(lines)
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            matched_category = _match_category(msg)
+            if matched_category:
+                memory["last_category"] = matched_category
+                rows = conn.execute(
+                    "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista",
+                    (matched_category,),
+                ).fetchall()
+                cat_name = CATEGORY_NAMES[matched_category]
+                if rows:
+                    lines = [f"**{cat_name} Disponibles:**\n"]
+                    for r in rows:
+                        desc = r["descuento_efectivo"]
+                        price_str = f"${r['precio_lista']:,} CLP"
+                        if desc > 0:
+                            pe = r["precio_lista"] - int(r["precio_lista"] * desc)
+                            price_str = f"~~${r['precio_lista']:,}~~ **${pe:,} CLP**"
+                        stock_info = _format_product_stock(r)
+                        lines.append(f"- {r['nombre']} - {price_str} | {stock_info}")
+                    lines.append("\n_Pregunta por 'stock [categoría]' para ver detalle por sucursal._")
+                    reply = "\n".join(lines)
+
+            if not reply:
+                rows = conn.execute(
+                    "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE LOWER(nombre) LIKE ? LIMIT 8",
+                    (f"%{msg}%",),
+                ).fetchall()
+                if rows:
+                    lines = ["**Resultados de búsqueda:**\n"]
+                    for r in rows:
+                        price_str = f"${r['precio_lista']:,} CLP"
+                        if r["descuento_efectivo"] > 0:
+                            pe = r["precio_lista"] - int(r["precio_lista"] * r["descuento_efectivo"])
+                            price_str = f"~~${r['precio_lista']:,}~~ **${pe:,} CLP**"
+                        stock_info = _format_product_stock(r)
+                        lines.append(f"- {r['nombre']} - {price_str} | {stock_info}")
+                    if len(rows) == 8:
+                        lines.append("\n_Mostrando los primeros 8 resultados. Sé más específico._")
+                    reply = "\n".join(lines)
+
+            if not reply:
+                if memory:
+                    memory.clear()
+                reply = (
+                    "Hola, soy TechAssist de PC Factory.\n\n"
+                    "Puedes preguntarme por:\n"
+                    "• Categorías: procesadores, GPUs, RAM, almacenamiento, placas madre, etc.\n"
+                    "• Ofertas y descuentos\n"
+                    "• Stock disponible\n"
+                    "• Productos específicos por nombre\n\n"
+                    "¿Qué te gustaría conocer?"
+                )
+    except Exception as e:
+        reply = f"Error al consultar: {e}"
+    return ChatResponse(reply=reply, session_id=session_id)

@@ -1,1 +1,37 @@
+# Sensibles / secretos
 .env
+*.env.*
+**/*.env
+
+# Bases de datos
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# OpenCode metadata
+*.metadata.json
+opencode.json
