@@ -5,6 +5,7 @@ env
 .github
 **/__pycache__
 **/.ipynb_checkpoints
+**/node_modules
 *.pyc
 *.pyo
 .DS_Store
