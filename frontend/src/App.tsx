@@ -6,6 +6,10 @@ import HomePage from './pages/HomePage'
 import CategoryPage from './pages/CategoryPage'
 import ProductDetailPage from './pages/ProductDetailPage'
 import AIAssistantPage from './pages/AIAssistantPage'
+import CartPage from './pages/CartPage'
+import OrderTrackingPage from './pages/OrderTrackingPage'
+import RecommendationsPage from './pages/RecommendationsPage'
+import AboutPage from './pages/AboutPage'
 
 export default function App() {
   return (
@@ -15,8 +19,13 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/categoria/:category" element={<CategoryPage />} />
+          <Route path="/categoria" element={<CategoryPage />} />
           <Route path="/producto/:sku" element={<ProductDetailPage />} />
           <Route path="/asistente" element={<AIAssistantPage />} />
+          <Route path="/carrito" element={<CartPage />} />
+          <Route path="/ordenes" element={<OrderTrackingPage />} />
+          <Route path="/recomendaciones" element={<RecommendationsPage />} />
+          <Route path="/nosotros" element={<AboutPage />} />
         </Routes>
       </main>
       <Footer />

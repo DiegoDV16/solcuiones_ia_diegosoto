@@ -4,10 +4,10 @@ import { chatSend } from '../api/client'
 import type { ChatMessage } from '../types'
 
 const QUICK_ACTIONS = [
-  { icon: <Bot size={14} />, label: 'Start New Build' },
-  { icon: <CheckCircle size={14} />, label: 'Check Compatibility' },
-  { icon: <Monitor size={14} />, label: 'Compare GPUs' },
-  { icon: <Truck size={14} />, label: 'Next Day Shipping?' },
+  { icon: <Bot size={14} />, label: 'Nuevo Armado' },
+  { icon: <CheckCircle size={14} />, label: 'Verificar Compatibilidad' },
+  { icon: <Monitor size={14} />, label: 'Comparar GPUs' },
+  { icon: <Truck size={14} />, label: 'Envío al Día Siguiente?' },
 ]
 
 export default function AIAssistantPage() {
@@ -15,7 +15,7 @@ export default function AIAssistantPage() {
     {
       role: 'assistant',
       content:
-        "Welcome back to PC Factoría. I'm TechAssist. I can help you with specifications, real-time stock levels, and custom build compatibility. What are you looking for today?",
+        "Bienvenido a PC Factoría. Soy TechAssist. Puedo ayudarte con especificaciones, stock en tiempo real y compatibilidad de armado. ¿Qué buscas hoy?",
     },
   ])
   const [input, setInput] = useState('')
@@ -39,7 +39,7 @@ export default function AIAssistantPage() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: 'Error: Could not reach the assistant. Please try again.' },
+        { role: 'assistant', content: 'Error: No se pudo conectar con el asistente. Intenta de nuevo.' },
       ])
     }
     setLoading(false)
@@ -57,17 +57,17 @@ export default function AIAssistantPage() {
           <div className="card space-y-4">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Bot size={18} className="text-primary" />
-              TechAssist AI
-              <span className="chip-instock text-[10px] ml-auto">Online</span>
+              TechAssist IA
+              <span className="chip-instock text-[10px] ml-auto">En línea</span>
             </div>
 
             <nav className="space-y-1">
               {[
-                { icon: <Bot size={14} />, label: 'Assistant' },
-                { icon: <MemoryStick size={14} />, label: 'Hardware Specs' },
-                { icon: <CheckCircle size={14} />, label: 'Compatibility' },
-                { icon: <Truck size={14} />, label: 'Order Status' },
-                { icon: <HeadphonesIcon size={14} />, label: 'Human Support' },
+                { icon: <Bot size={14} />, label: 'Asistente' },
+                { icon: <MemoryStick size={14} />, label: 'Especificaciones' },
+                { icon: <CheckCircle size={14} />, label: 'Compatibilidad' },
+                { icon: <Truck size={14} />, label: 'Estado de Orden' },
+                { icon: <HeadphonesIcon size={14} />, label: 'Soporte Humano' },
               ].map((item) => (
                 <button
                   key={item.label}
@@ -80,15 +80,15 @@ export default function AIAssistantPage() {
             </nav>
 
             <div className="border-t border-outline pt-4">
-              <button className="btn-primary w-full text-sm" onClick={() => handleQuickAction('Start New Build')}>
-                Start New Build
+              <button className="btn-primary w-full text-sm" onClick={() => handleQuickAction('Nuevo Armado')}>
+                Nuevo Armado
               </button>
             </div>
 
             {/* Current Config */}
             <div className="border-t border-outline pt-4">
               <h4 className="font-mono text-[10px] text-secondary-400 uppercase tracking-wider mb-2">
-                Current Configuration
+                Configuración Actual
               </h4>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
@@ -118,9 +118,9 @@ export default function AIAssistantPage() {
               <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
             </div>
             <span className="font-mono text-xs text-secondary-200 ml-2">
-              Support Terminal v2.4 — Hardware Intelligence Engine
+              Terminal de Soporte v2.4 — Motor de Inteligencia de Hardware
             </span>
-            <span className="ml-auto chip-instock text-[10px]">SYSTEM READY</span>
+            <span className="ml-auto chip-instock text-[10px]">SISTEMA LISTO</span>
           </div>
 
           {/* Messages */}
@@ -150,7 +150,7 @@ export default function AIAssistantPage() {
                 <div className="flex gap-2">
                   <Bot size={18} className="text-primary" />
                   <div className="bg-secondary-50 rounded-lg px-4 py-2.5 text-sm text-secondary-400">
-                    <span className="animate-pulse">Processing your request...</span>
+                    <span className="animate-pulse">Procesando tu solicitud...</span>
                   </div>
                 </div>
               </div>
@@ -183,7 +183,7 @@ export default function AIAssistantPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="Type your message here..."
+                placeholder="Escribe tu mensaje aquí..."
                 className="input text-sm flex-1"
               />
               <button

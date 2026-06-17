@@ -26,7 +26,7 @@ export default function ProductCard({ product }: Props) {
 
       <div className="flex-1 flex flex-col">
         <span className="font-mono text-[10px] text-secondary-400 uppercase tracking-wider mb-1">
-          {product.categoria || 'Component'}
+          {product.categoria || 'Componente'}
         </span>
 
         <Link to={`/producto/${product.sku}`} className="block">
@@ -56,7 +56,7 @@ export default function ProductCard({ product }: Props) {
 
           <Link to={`/producto/${product.sku}`} className="btn-primary w-full text-center flex items-center justify-center gap-2 text-xs">
             <ShoppingCart size={14} />
-            Add to Cart
+            Agregar al Carrito
           </Link>
         </div>
       </div>

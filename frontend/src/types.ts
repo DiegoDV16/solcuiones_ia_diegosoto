@@ -59,3 +59,47 @@ export const CATEGORY_ICONS: Record<string, string> = {
   monitores: 'monitor',
   accesorios: 'accessory',
 }
+
+export interface Recommendation {
+  sku: string
+  nombre: string
+  precio_lista: number
+  descuento_efectivo: number
+  categoria: string
+  total_stock: number
+  reason: string
+}
+
+export interface OrderTracking {
+  order: {
+    id: number
+    fecha: string
+    cliente_nombre: string | null
+    total: number
+    branch_codigo: string
+    branch_nombre: string
+    region: string
+    comuna: string
+    direccion: string
+  }
+  items: {
+    sku: string
+    cantidad: number
+    precio_unitario: number
+    descuento: number
+    producto: string
+  }[]
+  tracking: {
+    estado: string
+    fecha: string
+    descripcion: string
+  }[]
+  recommendations: Recommendation[]
+}
+
+export interface BundleRecommendation {
+  budget: number
+  total: number
+  remaining: number
+  items: Product[]
+}

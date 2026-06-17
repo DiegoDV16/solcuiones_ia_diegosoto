@@ -13,6 +13,12 @@ if str(ROOT) not in sys.path:
 
 load_dotenv(ROOT / ".env")
 
+from backend.monitoring.logger import log_chat_interaction, log_error
+from backend.monitoring.metrics import metrics
+from backend.monitoring.tracing import tracer, trace_context
+from backend.monitoring.security import sanitize_chat_message, ai_rate_limiter, sanitizer
+from backend.monitoring.cache import response_cache
+
 router = APIRouter(tags=["chat"])
 
 
@@ -204,27 +210,122 @@ _fallback_store: dict[str, dict] = {}
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
+    import time
+
+    sanitized_msg, injection_warning = sanitize_chat_message(req.message)
+    if injection_warning:
+        log_error(
+            error_type="injection_attempt",
+            message=injection_warning,
+            endpoint="/api/chat",
+            user_id=req.session_id,
+        )
+        return ChatResponse(
+            reply="Lo siento, no puedo procesar mensajes con código malicioso.",
+            session_id=req.session_id,
+        )
+
+    rate_key = f"chat:{req.session_id}"
+    if not ai_rate_limiter.is_allowed(rate_key):
+        log_error(
+            error_type="rate_limit",
+            message="Rate limit excedido para chat",
+            endpoint="/api/chat",
+            user_id=req.session_id,
+        )
+        return ChatResponse(
+            reply="Has excedido el límite de mensajes. Espera un momento antes de continuar.",
+            session_id=req.session_id,
+        )
+
+    cached = response_cache.get(sanitized_msg, req.session_id)
+    if cached:
+        metrics.record_cache(hit=True)
+        return ChatResponse(reply=cached, session_id=req.session_id)
+
+    metrics.record_cache(hit=False)
+    start_time = time.perf_counter()
+    trace_id = f"chat_{int(time.time())}"
+
     if not _HAS_LLM or _app_agent is None:
-        return _fallback_chat(req.message, req.session_id)
+        duration = (time.perf_counter() - start_time) * 1000
+        response = _fallback_chat(sanitized_msg, req.session_id)
+        log_chat_interaction(
+            user_id=req.session_id,
+            prompt=sanitized_msg,
+            response=response.reply,
+            response_time_ms=duration,
+            tokens=0,
+            status="success",
+            endpoint="/api/chat",
+        )
+        metrics.record_request("/api/chat", duration, req.session_id)
+        return response
 
     history = _get_history(req.session_id)
-    history.add_user_message(req.message)
+    history.add_user_message(sanitized_msg)
     try:
-        result = _app_agent.invoke(
-            {"messages": history.messages},
-            {"configurable": {"thread_id": req.session_id}},
-        )
+        span_llm = tracer.start_span("agent_invoke", trace_id)
+        with span_llm:
+            result = _app_agent.invoke(
+                {"messages": history.messages},
+                {"configurable": {"thread_id": req.session_id}},
+            )
         reply = result["messages"][-1].content
         history.add_ai_message(reply)
+        tokens_used = 0
+        try:
+            if hasattr(result, "__getitem__") and "token_usage" in str(type(result)):
+                usage = result.get("token_usage", {})
+                tokens_used = usage.get("total_tokens", 0) if isinstance(usage, dict) else 0
+        except Exception:
+            pass
+
+        duration = (time.perf_counter() - start_time) * 1000
+        metrics.record_ai_interaction(duration, tokens_used, success=True)
+        response_cache.set(sanitized_msg, reply, req.session_id)
+
+        log_chat_interaction(
+            user_id=req.session_id,
+            prompt=sanitized_msg,
+            response=reply,
+            response_time_ms=duration,
+            tokens=tokens_used,
+            status="success",
+            endpoint="/api/chat",
+        )
+        metrics.record_request("/api/chat", duration, req.session_id)
         return ChatResponse(reply=reply, session_id=req.session_id)
+
     except Exception as e:
-        return ChatResponse(reply=f"Error: {str(e)}", session_id=req.session_id)
+        duration = (time.perf_counter() - start_time) * 1000
+        error_msg = str(e)
+        metrics.record_ai_interaction(duration, 0, success=False)
+        metrics.record_error(type(e).__name__)
+        log_chat_interaction(
+            user_id=req.session_id,
+            prompt=sanitized_msg,
+            response="",
+            response_time_ms=duration,
+            tokens=0,
+            status="error",
+            error=error_msg,
+            endpoint="/api/chat",
+        )
+        log_error(
+            error_type=type(e).__name__,
+            message=error_msg,
+            endpoint="/api/chat",
+            user_id=req.session_id,
+        )
+        return ChatResponse(reply=f"Error: {error_msg}", session_id=req.session_id)
 
 
 @router.post("/chat/reset")
 async def reset_chat(session_id: str = "default"):
     if session_id in _store:
         _store[session_id].clear()
+    response_cache.invalidate(session_id)
     return {"status": "reset"}
 
 
@@ -450,7 +551,10 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             best_build["remaining"] = remaining
 
                 if not best_build:
-                    return f"Lo siento, con un presupuesto de ${budget:,} CLP no es posible armar una PC completa con los componentes disponibles. El mínimo sugerido es de aproximadamente $400,000 CLP."
+                    return (
+                        f"Con un presupuesto de ${budget:,} CLP no fue posible armar una PC completa. "
+                        "Intenta con un monto mayor o pregunta por componentes individuales."
+                    )
 
                 lines = [f"**PC Armada - {best_build['platform']}**\n"]
                 lines.append(f"Presupuesto: ${budget:,} CLP")
@@ -466,10 +570,33 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                         name = name_row["nombre"] if name_row else sku
                         lines.append(f"• **{LABELS[comp]}:** {name} - ${info['precio']:,} CLP")
                 lines.append("")
-                lines.append("¿Te gustaría comprar esta configuración? Indica la sucursal para procesar el pedido.")
+                lines.append("📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'.")
 
-                memory["last_build"] = best_build
+                memory["last_details"] = "\n".join(lines)
                 return "\n".join(lines)
+
+            if any(p in msg for p in ["envío al día siguiente", "next day shipping", "envio rapido", "despacho"]):
+                reply = (
+                    "**Información de Despacho PC Factory**\n\n"
+                    "• **Despacho a domicilio:** 3-5 días hábiles ($4,990 CLP)\n"
+                    "• **Retiro en tienda:** Gratis, 24 hrs después de la compra\n"
+                    "• **Envío Express:** Antes de las 13:00 hrs, llega al día siguiente ($9,990 CLP)\n"
+                    "• **Envío Gratis:** En compras sobre $100,000 CLP\n\n"
+                    "¿Quieres verificar disponibilidad en alguna sucursal?"
+                )
+                return ChatResponse(reply=reply, session_id=session_id)
+
+            if any(p in msg for p in ["verificar compatibilidad", "check compatibility", "compatible"]):
+                reply = (
+                    "**Verificador de Compatibilidad**\n\n"
+                    "Puedo ayudarte a verificar si dos componentes son compatibles.\n"
+                    "Dime qué componentes quieres revisar, por ejemplo:\n"
+                    "• '¿El Ryzen 7 7800X3D es compatible con la B650?'\n"
+                    "• '¿La RTX 4080 Super funciona con fuente de 750W?'\n"
+                    "• '¿Qué RAM es compatible con mi placa madre?'\n\n"
+                    "También puedes visitar la página del producto y usar el chat integrado."
+                )
+                return ChatResponse(reply=reply, session_id=session_id)
 
             greeting_words = ["hola", "buenas", "buen dia", "buena tarde", "buena noche", "saludos", "hey", "que tal"]
             if any(g in msg for g in greeting_words) and len(msg) < 40:
@@ -538,6 +665,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     )
                 else:
                     reply = f"No encontré productos que coincidan con tu búsqueda."
+                memory["last_details"] = reply
+                reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
             if "oferta" in msg or "descuento" in msg or "promo" in msg:
@@ -555,6 +684,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     reply = "\n".join(lines)
                 else:
                     reply = "Actualmente no hay productos con descuento activo."
+                memory["last_details"] = reply
+                reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
             if "barato" in msg or "mejor precio" in msg:
@@ -573,11 +704,14 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     f"**Producto más barato del catálogo:**\n\n"
                     f"- {row['nombre']} - {price_str} | {stock_info}"
                 )
+                memory["last_details"] = reply
+                reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
-            wants_budget = any(p in msg for p in ["presupuesto", "armar", "arma una pc", "arma un pc", "armame", "build", "configuracion", "configuración", "arreglo"])
-            if wants_budget or "presupuesto" in msg or "presupuesto de" in msg:
-                import re
+            import re
+            pure_number = re.match(r"^\d{4,}$", msg.replace(".", "").replace(" ", ""))
+            wants_budget = any(p in msg for p in ["presupuesto", "armar", "arma una pc", "arma un pc", "armame", "build", "configuracion", "configuración", "arreglo", "nuevo armado", "nueva pc"])
+            if wants_budget or "presupuesto" in msg or "presupuesto de" in msg or pure_number:
                 budget_match = re.search(r"(\d[\d.]*)", msg.replace(",", ""))
                 budget = None
                 if budget_match:
@@ -587,14 +721,36 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     except ValueError:
                         pass
 
-                if budget and budget >= 100000:
+                if budget:
                     reply = _build_pc_by_budget(budget, conn, memory)
-                    return ChatResponse(reply=reply, session_id=session_id)
-                elif budget and budget < 100000:
-                    reply = f"Con un presupuesto de ${budget:,} CLP es muy limitado. El mínimo recomendado para un PC es de $200,000 CLP aproximadamente."
                     return ChatResponse(reply=reply, session_id=session_id)
                 else:
                     reply = "¿Cuál es tu presupuesto? Dime un monto como '300000' o '500 mil' y armaré una PC compatible."
+                    return ChatResponse(reply=reply, session_id=session_id)
+
+            last_details = memory.get("last_details")
+            if last_details:
+                want_email = any(p in msg for p in ["sí", "si", "3", "enviar", "correo", "email", "envía", "manda", "detalles", "comprobante"])
+                dont_email = any(p in msg for p in ["no", "no gracias", "no quiero", "nope", "2"])
+                if want_email and not dont_email:
+                    from backend.services.email_service import send_text_email, is_email_configured
+                    if not is_email_configured():
+                        reply = "El envío de correos no está configurado. Revisa el archivo .env con las credenciales SMTP."
+                        return ChatResponse(reply=reply, session_id=session_id)
+                    sent = send_text_email(
+                        to_email=os.getenv("SMTP_FROM", "compus.factoryvd@gmail.com"),
+                        subject="PC Factory - Detalles de tu consulta",
+                        body=last_details,
+                    )
+                    if sent:
+                        reply = f"✅ **Detalles enviados** a {os.getenv('SMTP_FROM', 'compus.factoryvd@gmail.com')}. Revisa tu bandeja de entrada."
+                    else:
+                        reply = "No se pudo enviar el correo. Intenta más tarde o verifica la configuración SMTP."
+                    memory.pop("last_details", None)
+                    return ChatResponse(reply=reply, session_id=session_id)
+                if dont_email:
+                    memory.pop("last_details", None)
+                    reply = "Entendido. ¿Necesitas algo más?"
                     return ChatResponse(reply=reply, session_id=session_id)
 
             wants_stock = "stock" in msg
@@ -618,6 +774,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             lines.append(f"- {r['nombre']} -- {stock_info}")
                         reply = "\n".join(lines)
                         memory["last_category"] = cat_id
+                        memory["last_details"] = reply
+                        reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                         return ChatResponse(reply=reply, session_id=session_id)
 
                 if wants_stock and not wants_stock_detail and memory.get("last_category") is not None:
@@ -633,6 +791,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             stock_info = _format_product_stock(r)
                             lines.append(f"- {r['nombre']} -- {stock_info}")
                         reply = "\n".join(lines)
+                        memory["last_details"] = reply
+                        reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                         return ChatResponse(reply=reply, session_id=session_id)
 
                 total = conn.execute("SELECT SUM(cantidad) AS s FROM inventory").fetchone()["s"]
@@ -649,6 +809,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     f"• Productos con stock bajo (<5 uds): {low_stock}\n\n"
                     f"Para ver stock por producto, pregúntame por una categoría o producto específico."
                 )
+                memory["last_details"] = reply
+                reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
             if "todo" in msg or "categoria" in msg or "list" in msg or "categoría" in msg:
@@ -660,6 +822,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     lines.append(f"• **{cname}** ({count} productos)")
                 lines.append("\n_Pregúntame por cualquier categoría para ver sus productos._")
                 reply = "\n".join(lines)
+                memory["last_details"] = reply
+                reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
             matched_category = _match_category(msg)
@@ -700,6 +864,10 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     if len(rows) == 8:
                         lines.append("\n_Mostrando los primeros 8 resultados. Sé más específico._")
                     reply = "\n".join(lines)
+
+            if reply and "¿Quieres que envíe" not in reply:
+                memory["last_details"] = reply
+                reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
 
             if not reply:
                 if memory:

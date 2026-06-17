@@ -10,7 +10,7 @@ export default function TechAssistAI() {
     {
       role: 'assistant',
       content:
-        "Hi! Need help building your PC? I can suggest the best components for your budget and use case.",
+        "¡Hola! ¿Necesitas ayuda para armar tu PC? Puedo sugerirte los mejores componentes según tu presupuesto.",
     },
   ])
   const [input, setInput] = useState('')
@@ -35,7 +35,7 @@ export default function TechAssistAI() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' },
+        { role: 'assistant', content: 'Lo siento, ocurrió un error. Intenta de nuevo.' },
       ])
     }
     setLoading(false)
@@ -58,10 +58,10 @@ export default function TechAssistAI() {
             <div className="flex items-center gap-2">
               <Bot size={18} className="text-tertiary-400" />
               <div>
-                <div className="text-sm font-semibold">TechAssist AI</div>
+                <div className="text-sm font-semibold">TechAssist IA</div>
                 <div className="flex items-center gap-1 text-[10px] text-tertiary-400">
                   <span className="w-1.5 h-1.5 bg-tertiary-500 rounded-full inline-block" />
-                  Status: Online
+                  Estado: En línea
                 </div>
               </div>
             </div>
@@ -95,7 +95,7 @@ export default function TechAssistAI() {
             {loading && (
               <div className="flex justify-start">
                 <div className="bg-secondary-50 rounded-lg px-3 py-2 text-sm text-secondary-400">
-                  Thinking...
+                  Pensando...
                 </div>
               </div>
             )}
@@ -109,7 +109,7 @@ export default function TechAssistAI() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="Ask about components..."
+                placeholder="Pregunta sobre componentes..."
                 className="input text-sm flex-1"
               />
               <button

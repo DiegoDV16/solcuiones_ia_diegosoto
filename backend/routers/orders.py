@@ -68,3 +68,31 @@ async def get_order(order_id: int):
         return get_order_details(order_id)
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+@router.get("/orders/{order_id}/track")
+async def track_order(order_id: int):
+    try:
+        details = get_order_details(order_id)
+        order = details["order"]
+        statuses = [
+            {"estado": "confirmada", "fecha": order["fecha"], "descripcion": "Orden recibida y confirmada"},
+            {"estado": "preparacion", "fecha": order["fecha"], "descripcion": "Productos en preparación"},
+            {"estado": "listo", "fecha": order["fecha"], "descripcion": "Listo para retiro en sucursal"},
+        ]
+        recommendations = []
+        try:
+            from backend.routers.recommendations import get_recommendations
+            for item in details.get("items", []):
+                recs = await get_recommendations(item["sku"], limit=2)
+                recommendations.extend(recs.get("recommendations", []))
+        except Exception:
+            pass
+        return {
+            "order": order,
+            "items": details["items"],
+            "tracking": statuses,
+            "recommendations": recommendations[:4],
+        }
+    except ValueError as e:
+        raise HTTPException(404, str(e))

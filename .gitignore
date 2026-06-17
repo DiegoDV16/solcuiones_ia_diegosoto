@@ -32,6 +32,10 @@ frontend/.vite/
 Thumbs.db
 .DS_Store
 
+# Logs
+logs/*.log
+!logs/.gitkeep
+
 # OpenCode metadata
 *.metadata.json
 opencode.json

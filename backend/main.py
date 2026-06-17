@@ -10,13 +10,19 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from Scripts.catalog_db import init_catalog_db
-from backend.routers import products, orders, chat
+from backend.routers import products, orders, chat, recommendations
+
+from backend.monitoring.middleware import setup_monitoring
+from backend.monitoring.logger import audit_log
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_catalog_db()
+    audit_log("system_startup", None, "application", "Sistema iniciado correctamente")
     yield
+    audit_log("system_shutdown", None, "application", "Sistema detenido")
+
 
 app = FastAPI(title="PC Factoría API", version="1.0.0", lifespan=lifespan)
 
@@ -28,9 +34,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app = setup_monitoring(app)
+
 app.include_router(products.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(recommendations.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -37,12 +37,12 @@ export default function CategoryPage() {
   }, [selectedCat, searchQuery, dealsOnly])
 
   const title = dealsOnly
-    ? 'Deals'
+    ? 'Ofertas'
     : selectedCat
     ? categories.find((c) => c.nombre === selectedCat)?.nombre || selectedCat
     : searchQuery
-    ? `Search: "${searchQuery}"`
-    : 'All Products'
+    ? `Búsqueda: "${searchQuery}"`
+    : 'Todos los Productos'
 
   return (
     <div className="max-w-content mx-auto px-margin-mobile lg:px-margin-desktop py-8">
@@ -54,14 +54,14 @@ export default function CategoryPage() {
           <div className="flex items-center justify-between lg:mb-4 mb-2">
             <h3 className="font-semibold text-sm flex items-center gap-2">
               <SlidersHorizontal size={14} />
-              Filters
+              Filtros
             </h3>
           </div>
 
           <div className="space-y-4">
             <div>
               <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
-                Category
+                Categoría
               </h4>
               <div className="flex flex-wrap lg:flex-col gap-1.5">
                 <button
@@ -72,7 +72,7 @@ export default function CategoryPage() {
                       : 'bg-secondary-50 hover:bg-secondary-100 text-on-surface'
                   }`}
                 >
-                  All
+                  Todas
                 </button>
                 {categories.map((c) => (
                   <button
@@ -96,23 +96,23 @@ export default function CategoryPage() {
         <div className="flex-1">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm text-on-surface-variant">
-              Showing {products.length} results
+              Mostrando {products.length} resultados
             </span>
             <select className="text-xs border border-outline rounded px-2 py-1.5 bg-surface-container-lowest">
-              <option>Sort by</option>
-              <option>Price: Low to High</option>
-              <option>Price: High to Low</option>
-              <option>Newest First</option>
-              <option>Best Selling</option>
+              <option>Ordenar por</option>
+              <option>Precio: Menor a Mayor</option>
+              <option>Precio: Mayor a Menor</option>
+              <option>Más Recientes</option>
+              <option>Más Vendidos</option>
             </select>
           </div>
 
           {loading ? (
-            <div className="text-center py-16 text-secondary-400">Loading...</div>
+            <div className="text-center py-16 text-secondary-400">Cargando...</div>
           ) : products.length === 0 ? (
             <div className="text-center py-16">
-              <p className="text-secondary-400 mb-2">No products found</p>
-              <p className="text-xs text-secondary-300">Try adjusting your filters or search terms</p>
+              <p className="text-secondary-400 mb-2">No se encontraron productos</p>
+              <p className="text-xs text-secondary-300">Prueba ajustando los filtros o términos de búsqueda</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">

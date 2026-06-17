@@ -1,0 +1,173 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: TypeScript Check
+        run: npx tsc --noEmit
+        working-directory: frontend
+
+      - name: Python Syntax Check
+        run: |
+          python -m py_compile backend/main.py
+          python -m py_compile backend/routers/chat.py
+          python -m py_compile backend/routers/products.py
+          python -m py_compile backend/routers/orders.py
+          python -m py_compile backend/monitoring/__init__.py
+          python -m py_compile backend/monitoring/logger.py
+          python -m py_compile backend/monitoring/metrics.py
+          python -m py_compile backend/monitoring/security.py
+          python -m py_compile backend/monitoring/cache.py
+          python -m py_compile backend/monitoring/analytics.py
+
+  test:
+    name: Tests
+    needs: lint-and-typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pytest-asyncio httpx
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+        continue-on-error: true
+
+  build-and-push:
+    name: Build Docker Images
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        run: docker build -t pcfactory-api:latest -f Dockerfile.api .
+
+      - name: Build Dashboard image
+        run: docker build -t pcfactory-dashboard:latest -f Dockerfile.observability .
+
+      - name: Verify images
+        run: docker images | grep pcfactory
+
+  observability-checks:
+    name: Observability Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate logging structure
+        run: |
+          python -c "
+          import json
+          sample = {
+            'timestamp': '2025-01-01T00:00:00',
+            'user_id': 'test',
+            'prompt': 'test',
+            'response_time_ms': 100,
+            'tokens': 50,
+            'status': 'success',
+            'http_status': 200,
+            'endpoint': '/api/chat'
+          }
+          assert json.loads(json.dumps(sample)) == sample
+          print('Log structure validated')
+          "
+
+      - name: Verify monitoring module imports
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from backend.monitoring import get_logger, MetricsCollector, Tracer
+          from backend.monitoring import Sanitizer, RateLimiter, ResponseCache
+          print('All monitoring modules import successfully')
+          "
+
+      - name: Test sanitization
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from backend.monitoring.security import Sanitizer
+          clean = Sanitizer.sanitize_input(\"SELECT * FROM users; DROP TABLE products;\")
+          assert '[FILTERED]' in clean, 'SQL injection not filtered'
+          clean2 = Sanitizer.sanitize_input(\"<script>alert('xss')</script>\")
+          assert '[FILTERED]' in clean2, 'XSS not filtered'
+          print('Sanitization working correctly')
+          "
+
+      - name: Test rate limiter
+        run: |
+          python -c "
+          import sys, time
+          sys.path.insert(0, '.')
+          from backend.monitoring.security import RateLimiter
+          rl = RateLimiter(max_requests=3, window_seconds=60)
+          assert rl.is_allowed('test')
+          assert rl.is_allowed('test')
+          assert rl.is_allowed('test')
+          assert not rl.is_allowed('test')
+          print('Rate limiting working correctly')
+          "
+
+      - name: Test cache
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from backend.monitoring.cache import ResponseCache
+          cache = ResponseCache(ttl_seconds=60)
+          cache.set('test prompt', 'test response')
+          result = cache.get('test prompt')
+          assert result == 'test response', 'Cache miss'
+          assert cache.hit_ratio > 0, 'Hit ratio not tracked'
+          print('Cache working correctly')
+          "

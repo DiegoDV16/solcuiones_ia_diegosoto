@@ -3,9 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Search, ShoppingCart, User, Menu, X, Cpu } from 'lucide-react'
 
 const CATEGORIES = [
-  { name: 'Build PC', path: '/build-pc' },
-  { name: 'Deals', path: '/categoria?deals=true' },
-  { name: 'Support', path: '/asistente' },
+  { name: 'Ofertas', path: '/categoria?deals=true' },
+  { name: 'Recomendaciones', path: '/recomendaciones' },
+  { name: 'Órdenes', path: '/ordenes' },
+  { name: 'Soporte', path: '/asistente' },
 ]
 
 export default function Header() {
@@ -97,10 +98,10 @@ export default function Header() {
               ))}
               <div className="flex gap-4 pt-2 border-t border-outline">
                 <Link to="/carrito" className="text-sm flex items-center gap-1">
-                  <ShoppingCart size={16} /> Cart
+                  <ShoppingCart size={16} /> Carrito
                 </Link>
                 <Link to="/cuenta" className="text-sm flex items-center gap-1">
-                  <User size={16} /> Account
+                  <User size={16} /> Cuenta
                 </Link>
               </div>
             </nav>

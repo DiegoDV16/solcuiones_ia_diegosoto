@@ -21,7 +21,7 @@ export default function ProductDetailPage() {
   const [chatOpen, setChatOpen] = useState(true)
   const [chatMsg, setChatMsg] = useState('')
   const [chat, setChat] = useState<ChatMessage[]>([
-    { role: 'assistant', content: "Hello! I see you're looking at this product. Would you like me to check compatibility with your current build?" },
+    { role: 'assistant', content: "¡Hola! Veo que estás viendo este producto. ¿Quieres que revise la compatibilidad con tu armado?" },
   ])
 
   useEffect(() => {
@@ -33,15 +33,15 @@ export default function ProductDetailPage() {
     })
   }, [sku])
 
-  if (loading) return <div className="text-center py-20 text-secondary-400">Loading...</div>
-  if (!product) return <div className="text-center py-20 text-secondary-400">Product not found</div>
+  if (loading) return <div className="text-center py-20 text-secondary-400">Cargando...</div>
+  if (!product) return <div className="text-center py-20 text-secondary-400">Producto no encontrado</div>
 
   const finalPrice = discountedPrice(product.precio_lista, product.descuento_efectivo)
   const hasDiscount = product.descuento_efectivo > 0
   const stock = getStockLabel(product.total_stock)
   const specs = SPECS_MOCK[product.sku] || [
     { label: 'SKU', value: product.sku },
-    { label: 'CATEGORY', value: product.categoria || 'N/A' },
+    { label: 'CATEGORÍA', value: product.categoria || 'N/A' },
   ]
 
   const handleChat = async () => {
@@ -53,7 +53,7 @@ export default function ProductDetailPage() {
       const res = await chatSend(`About ${product.sku}: ${msg}`)
       setChat((prev) => [...prev, { role: 'assistant', content: res.reply }])
     } catch {
-      setChat((prev) => [...prev, { role: 'assistant', content: 'Error processing your request.' }])
+      setChat((prev) => [...prev, { role: 'assistant', content: 'Error al procesar tu solicitud.' }])
     }
   }
 
@@ -61,7 +61,7 @@ export default function ProductDetailPage() {
     <div className="max-w-content mx-auto px-margin-mobile lg:px-margin-desktop py-8">
       {/* Breadcrumb */}
       <div className="text-xs text-secondary-400 mb-6 flex items-center gap-2">
-        <Link to="/" className="hover:text-primary">Home</Link>
+        <Link to="/" className="hover:text-primary">Inicio</Link>
         <span>/</span>
         <Link to={`/categoria/${product.categoria}`} className="hover:text-primary capitalize">
           {product.categoria}
@@ -88,7 +88,7 @@ export default function ProductDetailPage() {
         {/* Right - Info */}
         <div>
           <p className="font-mono text-[10px] text-secondary-400 uppercase tracking-wider mb-2">
-            {product.categoria || 'Component'}
+            {product.categoria || 'Componente'}
           </p>
           <h1 className="text-2xl lg:text-3xl font-bold leading-tight mb-2">{product.nombre}</h1>
 
@@ -100,7 +100,7 @@ export default function ProductDetailPage() {
           </div>
 
           <div className="flex items-center gap-3 mb-6">
-            <span className={stock.className}>{stock.label} ({product.total_stock} units)</span>
+            <span className={stock.className}>{stock.label} ({product.total_stock} uds.)</span>
           </div>
 
           <div className="flex flex-wrap gap-3 mb-8">
@@ -110,7 +110,7 @@ export default function ProductDetailPage() {
             </button>
             <button className="btn-secondary flex items-center gap-2">
               <Heart size={16} />
-              Add to Wishlist
+              Agregar a Favoritos
             </button>
           </div>
 
@@ -130,10 +130,10 @@ export default function ProductDetailPage() {
           <div className="mt-6 bg-primary-50 rounded-lg p-4 border border-primary-100">
             <div className="flex items-center gap-2 mb-2">
               <Bot size={16} className="text-primary" />
-              <span className="font-semibold text-sm">AI SMART BUNDLE</span>
+              <span className="font-semibold text-sm">PAQUETE INTELIGENTE IA</span>
             </div>
             <p className="text-xs text-on-surface-variant mb-3">
-              Optimized Compatibility. Our analysis suggests this component pairs well with compatible parts.
+              Compatibilidad Optimizada. Nuestro análisis sugiere que este componente funciona bien con partes compatibles.
             </p>
             <div className="flex items-center justify-between bg-white rounded px-3 py-2 border border-outline">
               <div>
@@ -150,7 +150,7 @@ export default function ProductDetailPage() {
 
       {/* Technical Specs full */}
       <div className="mt-12 border-t border-outline pt-8">
-        <h2 className="text-lg font-semibold mb-4">Technical Specifications</h2>
+        <h2 className="text-lg font-semibold mb-4">Especificaciones Técnicas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {specs.map((spec) => (
             <div key={spec.label} className="border-b border-outline pb-3">
@@ -160,7 +160,7 @@ export default function ProductDetailPage() {
           ))}
           {product.descripcion && (
             <div className="md:col-span-2 border-b border-outline pb-3">
-              <div className="font-mono text-[10px] text-secondary-400 tracking-wider mb-1">DESCRIPTION</div>
+              <div className="font-mono text-[10px] text-secondary-400 tracking-wider mb-1">DESCRIPCIÓN</div>
               <div className="text-sm">{product.descripcion}</div>
             </div>
           )}
@@ -172,10 +172,10 @@ export default function ProductDetailPage() {
         <div className="bg-secondary-800 text-white px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bot size={16} className="text-tertiary-400" />
-            <span className="text-sm font-semibold">TechAssist AI</span>
+            <span className="text-sm font-semibold">TechAssist IA</span>
             <span className="text-[10px] text-tertiary-400 flex items-center gap-1">
               <span className="w-1.5 h-1.5 bg-tertiary-500 rounded-full inline-block" />
-              Online
+              En línea
             </span>
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function ProductDetailPage() {
             value={chatMsg}
             onChange={(e) => setChatMsg(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleChat()}
-            placeholder="Ask about this product..."
+            placeholder="Pregunta sobre este producto..."
             className="input text-sm flex-1"
           />
           <button onClick={handleChat} className="bg-primary text-white p-2 rounded">

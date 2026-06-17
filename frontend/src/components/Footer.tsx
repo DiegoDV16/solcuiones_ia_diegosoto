@@ -12,30 +12,30 @@ export default function Footer() {
               <span>PC Factoría</span>
             </div>
             <p className="text-secondary-200 text-sm leading-relaxed">
-              The ultimate tech warehouse for builders and enthusiasts since 2024.
+              El mejor almacén tecnológico para constructores y entusiastas desde 2024.
             </p>
           </div>
 
           <div>
-            <h4 className="font-semibold text-sm mb-4">Company</h4>
+            <h4 className="font-semibold text-sm mb-4">Empresa</h4>
             <ul className="space-y-2 text-sm text-secondary-200">
-              <li><Link to="/about" className="hover:text-white transition-colors">About Us</Link></li>
-              <li><Link to="/terms" className="hover:text-white transition-colors">Terms of Service</Link></li>
-              <li><Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/nosotros" className="hover:text-white transition-colors">Nosotros</Link></li>
+              <li><Link to="/recomendaciones" className="hover:text-white transition-colors">Recomendaciones IA</Link></li>
+              <li><Link to="/ordenes" className="hover:text-white transition-colors">Seguimiento de Órdenes</Link></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-semibold text-sm mb-4">Support</h4>
+            <h4 className="font-semibold text-sm mb-4">Soporte</h4>
             <ul className="space-y-2 text-sm text-secondary-200">
-              <li><Link to="/support" className="hover:text-white transition-colors">Contact Support</Link></li>
-              <li><Link to="/shipping" className="hover:text-white transition-colors">Shipping Info</Link></li>
-              <li><Link to="/returns" className="hover:text-white transition-colors">Return Policy</Link></li>
+              <li><Link to="/asistente" className="hover:text-white transition-colors">Asistente IA</Link></li>
+              <li><Link to="/carrito" className="hover:text-white transition-colors">Carrito de Compras</Link></li>
+              <li><Link to="/categoria" className="hover:text-white transition-colors">Productos</Link></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-semibold text-sm mb-4">Connect</h4>
+            <h4 className="font-semibold text-sm mb-4">Conectar</h4>
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-sm text-secondary-200">
                 <Mail size={16} />
@@ -53,7 +53,7 @@ export default function Footer() {
           <span className="flex items-center justify-center gap-2">
             <Shield size={14} />
             <BarChart3 size={14} />
-            © 2024 PC Factoría. Engineered for Performance.
+            © 2024 PC Factoría. Diseñado para el Rendimiento.
           </span>
         </div>
       </div>

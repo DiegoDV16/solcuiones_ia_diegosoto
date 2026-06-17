@@ -1,4 +1,4 @@
-import type { Product, Category, Branch } from '../types'
+import type { Product, Category, Branch, OrderTracking } from '../types'
 
 const BASE = '/api'
 
@@ -82,7 +82,23 @@ export function discountedPrice(lista: number, descuento: number): number {
 }
 
 export function getStockLabel(stock: number): { label: string; className: string } {
-  if (stock > 5) return { label: 'In Stock', className: 'chip-instock' }
-  if (stock > 0) return { label: 'Low Stock', className: 'chip-lowstock' }
-  return { label: 'Out of Stock', className: 'chip-outofstock' }
+  if (stock > 5) return { label: 'En Stock', className: 'chip-instock' }
+  if (stock > 0) return { label: 'Stock Bajo', className: 'chip-lowstock' }
+  return { label: 'Sin Stock', className: 'chip-outofstock' }
+}
+
+export async function trackOrder(orderId: number): Promise<OrderTracking> {
+  return fetchJSON(`/orders/${orderId}/track`)
+}
+
+export async function getRecommendations(sku: string, limit = 4) {
+  return fetchJSON(`/recommendations/${sku}?limit=${limit}`)
+}
+
+export async function getBundleRecommendations(budget: number) {
+  return fetchJSON(`/recommendations/bundle/${budget}`)
+}
+
+export async function getOrder(orderId: number) {
+  return fetchJSON(`/orders/${orderId}`)
 }
