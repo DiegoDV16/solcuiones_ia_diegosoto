@@ -1,4 +1,4 @@
-import type { Product, Category, Branch, OrderTracking } from '../types'
+import type { Product, Category, Branch, OrderTracking, BundleRecommendation } from '../types'
 
 const BASE = '/api'
 
@@ -55,7 +55,7 @@ export async function simulateOrder(data: {
   branch_code: string
   items: { sku: string; cantidad: number }[]
   cliente_nombre?: string
-}) {
+}): Promise<{ id: number; total: number }> {
   return fetchJSON('/orders/simulate', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -66,7 +66,7 @@ export async function createOrder(data: {
   branch_code: string
   items: { sku: string; cantidad: number }[]
   cliente_nombre?: string
-}) {
+}): Promise<{ id: number; total: number }> {
   return fetchJSON('/orders', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -95,7 +95,7 @@ export async function getRecommendations(sku: string, limit = 4) {
   return fetchJSON(`/recommendations/${sku}?limit=${limit}`)
 }
 
-export async function getBundleRecommendations(budget: number) {
+export async function getBundleRecommendations(budget: number): Promise<BundleRecommendation> {
   return fetchJSON(`/recommendations/bundle/${budget}`)
 }
 
