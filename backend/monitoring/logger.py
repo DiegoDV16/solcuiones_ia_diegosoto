@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from backend.monitoring.security import Anonymizer
+
 LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
@@ -139,6 +141,3 @@ def log_error(
     }
     logger = get_logger("error")
     logger.error("error_event", extra={"props": entry})
-
-
-from backend.monitoring.security import Anonymizer

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, X, Send } from 'lucide-react'
-import { chatSend } from '../api/client'
+import { Bot, X, Send, RefreshCw } from 'lucide-react'
+import { chatSend, chatReset } from '../api/client'
 import type { ChatMessage } from '../types'
 
 export default function TechAssistAI() {
@@ -15,7 +15,7 @@ export default function TechAssistAI() {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sessionId] = useState(() => `web_${Date.now()}`)
+  const [sessionId, setSessionId] = useState(() => `web_${Date.now()}`)
   const bottomRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
@@ -65,9 +65,24 @@ export default function TechAssistAI() {
                 </div>
               </div>
             </div>
-            <button onClick={() => setOpen(false)} className="text-secondary-200 hover:text-white p-1">
-              <X size={16} />
-            </button>
+                    <div className="flex items-center gap-1">
+              <button
+                onClick={async () => {
+                  try { await chatReset(sessionId) } catch {}
+                  setMessages([
+                    { role: 'assistant', content: 'La conversación se ha reiniciado. ¿En qué puedo ayudarte?' },
+                  ])
+                  setSessionId(`web_${Date.now()}`)
+                }}
+                className="text-secondary-200 hover:text-white p-1"
+                title="Reiniciar conversación"
+              >
+                <RefreshCw size={14} />
+              </button>
+              <button onClick={() => setOpen(false)} className="text-secondary-200 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
           <div

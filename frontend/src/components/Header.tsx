@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Search, ShoppingCart, User, Menu, X, Cpu } from 'lucide-react'
+import { useCart } from '../context/CartContext'
 
 const CATEGORIES = [
   { name: 'Ofertas', path: '/categoria?deals=true' },
@@ -14,6 +15,7 @@ export default function Header() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const navigate = useNavigate()
+  const { count } = useCart()
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,8 +54,16 @@ export default function Header() {
             >
               <Search size={20} />
             </button>
-            <button className="p-2 text-secondary-400 hover:text-on-surface transition-colors hidden sm:block">
+            <button
+              onClick={() => navigate('/carrito')}
+              className="p-2 text-secondary-400 hover:text-on-surface transition-colors hidden sm:block relative"
+            >
               <ShoppingCart size={20} />
+              {count > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 bg-primary text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                  {count > 9 ? '9+' : count}
+                </span>
+              )}
             </button>
             <button className="p-2 text-secondary-400 hover:text-on-surface transition-colors hidden sm:block">
               <User size={20} />

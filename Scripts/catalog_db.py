@@ -20,8 +20,10 @@ def init_catalog_db(recreate: bool = False) -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     if DB_PATH.exists() and not recreate:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(str(DB_PATH), timeout=10) as conn:
             conn.execute("PRAGMA foreign_keys = OFF;")
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=5000;")
             cur = conn.cursor()
             if _table_exists(cur, "branches"):
                 return
@@ -41,8 +43,10 @@ def init_catalog_db(recreate: bool = False) -> None:
             conn.commit()
         return
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=10) as conn:
         conn.execute("PRAGMA foreign_keys = OFF;")
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
         cur = conn.cursor()
 
         cur.executescript(
@@ -77,7 +81,7 @@ def query_product_db(query: str) -> Tuple[Optional[str], Optional[Dict[str, Any]
 
     normalized = texto.upper()
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
@@ -126,21 +130,21 @@ def _normalize_text(text: str) -> str:
 
 
 def get_all_skus() -> List[str]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         cur = conn.cursor()
         rows = cur.execute("SELECT sku FROM products ORDER BY sku").fetchall()
         return [row[0] for row in rows]
 
 
 def list_regions() -> List[str]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         cur = conn.cursor()
         rows = cur.execute("SELECT nombre FROM regions ORDER BY nombre").fetchall()
         return [row[0] for row in rows]
 
 
 def list_branches() -> List[Dict[str, Any]]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         rows = cur.execute(
@@ -159,7 +163,7 @@ def get_branch_by_code(code: str) -> Optional[Dict[str, Any]]:
     if not code:
         return None
     normalized = _normalize_text(code)
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         row = cur.execute(
@@ -178,7 +182,7 @@ def get_branch_by_code(code: str) -> Optional[Dict[str, Any]]:
 
 def query_products_by_region(region_or_comuna: str) -> List[Dict[str, Any]]:
     normalized = _normalize_text(region_or_comuna)
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         rows = cur.execute(
@@ -207,7 +211,7 @@ def query_products_by_region(region_or_comuna: str) -> List[Dict[str, Any]]:
 
 def query_shipping_to_region(region_or_comuna: str) -> List[Dict[str, Any]]:
     normalized = _normalize_text(region_or_comuna)
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         rows = cur.execute(
@@ -238,7 +242,7 @@ def simulate_order(branch_code: str, items: List[Tuple[str, int]], cliente_nombr
     if not items:
         raise ValueError("Debes indicar al menos un artículo y su cantidad.")
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
@@ -293,7 +297,7 @@ def create_order(branch_id: int, items: List[Tuple[str, int]], cliente_nombre: O
     if not items:
         raise ValueError("Debes indicar al menos un artículo y su cantidad.")
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("PRAGMA foreign_keys = ON;")
@@ -348,7 +352,7 @@ def create_order(branch_id: int, items: List[Tuple[str, int]], cliente_nombre: O
 
 
 def get_order_details(order_id: int) -> Dict[str, Any]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
@@ -387,7 +391,7 @@ def create_order_by_branch_code(branch_code: str, items: List[Tuple[str, int]], 
 
 def get_branch_inventory(branch_id: int) -> List[Dict[str, Any]]:
     """Devuelve el inventario de una sucursal con stock por producto."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         rows = cur.execute(

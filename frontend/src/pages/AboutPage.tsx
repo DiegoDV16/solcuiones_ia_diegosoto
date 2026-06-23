@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Cpu, Shield, Users, Award, MapPin, HeadphonesIcon } from 'lucide-react'
+import { getBranches } from '../api/client'
+import type { Branch } from '../types'
 
 const values = [
   { icon: <Cpu size={24} />, title: 'Tecnología de Punta', desc: 'Los componentes más avanzados del mercado global.' },
@@ -9,6 +12,16 @@ const values = [
 ]
 
 export default function AboutPage() {
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getBranches()
+      .then(setBranches)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <div className="max-w-content mx-auto px-margin-mobile lg:px-margin-desktop py-8">
       {/* Hero */}
@@ -39,7 +52,7 @@ export default function AboutPage() {
           {[
             { num: '10K+', label: 'Clientes Satisfechos' },
             { num: '500+', label: 'Productos en Stock' },
-            { num: '15+', label: 'Sucursales en Chile' },
+            { num: `${branches.length}+`, label: 'Sucursales en Chile' },
             { num: '4.9', label: 'Calificación Promedio' },
           ].map((s) => (
             <div key={s.label}>
@@ -56,21 +69,27 @@ export default function AboutPage() {
           <MapPin size={20} className="text-primary" /> Nuestras Sucursales
         </h2>
         <div className="card p-6">
-          <p className="text-sm text-secondary-400 mb-4">
-            Contamos con sucursales en las principales ciudades de Chile. 
-            Visítanos para recibir asesoría personalizada.
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            {[
-              'Santiago Centro', 'Las Condes', 'Providencia', 'Viña del Mar',
-              'Concepción', 'La Serena', 'Antofagasta', 'Temuco',
-            ].map((city) => (
-              <div key={city} className="flex items-center gap-2 text-secondary-400">
-                <MapPin size={14} className="text-primary shrink-0" />
-                <span>{city}</span>
+          {loading ? (
+            <div className="animate-pulse space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-4 bg-secondary-100 rounded w-2/3" />
+              ))}
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-secondary-400 mb-4">
+                Contamos con {branches.length} sucursales en Chile. Visítanos para recibir asesoría personalizada.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                {branches.map((b) => (
+                  <div key={b.codigo} className="flex items-center gap-2 text-secondary-400">
+                    <MapPin size={14} className="text-primary shrink-0" />
+                    <span>{b.nombre} - {b.comuna}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
       </section>
 

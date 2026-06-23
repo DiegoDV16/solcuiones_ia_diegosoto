@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Lightbulb, ShoppingCart, TrendingUp, Sparkles } from 'lucide-react'
 import ProductCard from '../components/ProductCard'
-import { getProducts } from '../api/client'
+import { getProducts, getBundleRecommendations } from '../api/client'
 import type { Product } from '../types'
 
 export default function RecommendationsPage() {
@@ -21,8 +21,7 @@ export default function RecommendationsPage() {
     if (!b || b < 100000) return
     setLoadingBundle(true)
     try {
-      const res = await fetch(`/api/recommendations/bundle/${b}`)
-      const data = await res.json()
+      const data = await getBundleRecommendations(b)
       setBundle(data.items || [])
       setBundleTotal(data.total || 0)
     } catch {

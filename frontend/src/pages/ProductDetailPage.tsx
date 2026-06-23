@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { Play, ShoppingCart, Heart, Cpu, Bot, Plus, Send } from 'lucide-react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { Play, ShoppingCart, Heart, Cpu, Bot, Plus, Send, Check } from 'lucide-react'
 import { getProduct, formatPrice, discountedPrice, getStockLabel } from '../api/client'
-import { chatSend } from '../api/client'
+import { chatSend, getRecommendations } from '../api/client'
 import type { Product, ChatMessage } from '../types'
+import { useCart } from '../context/CartContext'
 
 const SPECS_MOCK: Record<string, { label: string; value: string }[]> = {
   'CPU-INTEL-I7-14700K': [
@@ -16,10 +17,14 @@ const SPECS_MOCK: Record<string, { label: string; value: string }[]> = {
 
 export default function ProductDetailPage() {
   const { sku } = useParams()
+  const navigate = useNavigate()
+  const cart = useCart()
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
-  const [chatOpen, setChatOpen] = useState(true)
+  const [added, setAdded] = useState(false)
+  const [fav, setFav] = useState(false)
   const [chatMsg, setChatMsg] = useState('')
+  const [recommended, setRecommended] = useState<Product[]>([])
   const [chat, setChat] = useState<ChatMessage[]>([
     { role: 'assistant', content: "¡Hola! Veo que estás viendo este producto. ¿Quieres que revise la compatibilidad con tu armado?" },
   ])
@@ -30,10 +35,15 @@ export default function ProductDetailPage() {
     getProduct(sku).then((p) => {
       setProduct(p)
       setLoading(false)
+      getRecommendations(sku).then((recs) => {
+        if (recs && Array.isArray(recs)) setRecommended(recs)
+      }).catch(() => {})
     })
+    const favs = JSON.parse(localStorage.getItem('favorites') || '[]')
+    setFav(favs.includes(sku))
   }, [sku])
 
-  if (loading) return <div className="text-center py-20 text-secondary-400">Cargando...</div>
+  if (loading) return <div className="animate-pulse max-w-content mx-auto px-margin-mobile lg:px-margin-desktop py-8"><div className="h-8 bg-secondary-100 rounded w-1/3 mb-8" /><div className="h-96 bg-secondary-100 rounded w-full" /></div>
   if (!product) return <div className="text-center py-20 text-secondary-400">Producto no encontrado</div>
 
   const finalPrice = discountedPrice(product.precio_lista, product.descuento_efectivo)
@@ -43,6 +53,23 @@ export default function ProductDetailPage() {
     { label: 'SKU', value: product.sku },
     { label: 'CATEGORÍA', value: product.categoria || 'N/A' },
   ]
+
+  const handleBuy = () => {
+    cart.add(product.sku, product.nombre, finalPrice)
+    setAdded(true)
+    setTimeout(() => navigate('/carrito'), 400)
+  }
+
+  const handleFav = () => {
+    const favs: string[] = JSON.parse(localStorage.getItem('favorites') || '[]')
+    if (favs.includes(product.sku)) {
+      setFav(false)
+      localStorage.setItem('favorites', JSON.stringify(favs.filter((s: string) => s !== product.sku)))
+    } else {
+      setFav(true)
+      localStorage.setItem('favorites', JSON.stringify([...favs, product.sku]))
+    }
+  }
 
   const handleChat = async () => {
     if (!chatMsg.trim()) return
@@ -104,13 +131,19 @@ export default function ProductDetailPage() {
           </div>
 
           <div className="flex flex-wrap gap-3 mb-8">
-            <button className="btn-primary flex items-center gap-2">
-              <ShoppingCart size={16} />
-              Comprar
+            <button
+              onClick={handleBuy}
+              className={`btn-primary flex items-center gap-2 ${added ? 'bg-tertiary-600' : ''}`}
+            >
+              {added ? <Check size={16} /> : <ShoppingCart size={16} />}
+              {added ? 'Agregado' : 'Comprar'}
             </button>
-            <button className="btn-secondary flex items-center gap-2">
-              <Heart size={16} />
-              Agregar a Favoritos
+            <button
+              onClick={handleFav}
+              className={`btn-secondary flex items-center gap-2 ${fav ? 'text-red-500 border-red-200' : ''}`}
+            >
+              <Heart size={16} fill={fav ? 'currentColor' : 'none'} />
+              {fav ? 'Favorito' : 'Agregar a Favoritos'}
             </button>
           </div>
 
@@ -127,24 +160,34 @@ export default function ProductDetailPage() {
           </div>
 
           {/* AI Smart Bundle */}
-          <div className="mt-6 bg-primary-50 rounded-lg p-4 border border-primary-100">
-            <div className="flex items-center gap-2 mb-2">
-              <Bot size={16} className="text-primary" />
-              <span className="font-semibold text-sm">PAQUETE INTELIGENTE IA</span>
-            </div>
-            <p className="text-xs text-on-surface-variant mb-3">
-              Compatibilidad Optimizada. Nuestro análisis sugiere que este componente funciona bien con partes compatibles.
-            </p>
-            <div className="flex items-center justify-between bg-white rounded px-3 py-2 border border-outline">
-              <div>
-                <div className="text-xs font-medium">ROG Maximus Z790 Hero</div>
-                <div className="font-mono text-[10px] text-secondary-400">$549.990</div>
+          {recommended.length > 0 && (
+            <div className="mt-6 bg-primary-50 rounded-lg p-4 border border-primary-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Bot size={16} className="text-primary" />
+                <span className="font-semibold text-sm">PAQUETE INTELIGENTE IA</span>
               </div>
-              <button className="text-primary hover:bg-primary-50 p-1.5 rounded">
-                <Plus size={18} />
-              </button>
+              <p className="text-xs text-on-surface-variant mb-3">
+                Compatibilidad Optimizada. Recomendado para acompañar este componente.
+              </p>
+              <div className="space-y-2">
+                {recommended.slice(0, 3).map((rec) => (
+                  <Link
+                    key={rec.sku}
+                    to={`/producto/${rec.sku}`}
+                    className="flex items-center justify-between bg-white rounded px-3 py-2 border border-outline hover:border-primary transition-colors"
+                  >
+                    <div>
+                      <div className="text-xs font-medium">{rec.nombre}</div>
+                      <div className="font-mono text-[10px] text-secondary-400">
+                        {formatPrice(discountedPrice(rec.precio_lista, rec.descuento_efectivo))}
+                      </div>
+                    </div>
+                    <Plus size={18} className="text-primary" />
+                  </Link>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 

@@ -42,8 +42,12 @@ export default function Footer() {
                 <span>Newsletter</span>
               </div>
               <div className="flex gap-3">
-                <Twitter size={20} className="text-secondary-200 hover:text-white cursor-pointer" />
-                <Instagram size={20} className="text-secondary-200 hover:text-white cursor-pointer" />
+                <a href="https://twitter.com/pcfactoria" target="_blank" rel="noopener noreferrer">
+                  <Twitter size={20} className="text-secondary-200 hover:text-white cursor-pointer" />
+                </a>
+                <a href="https://instagram.com/pcfactoria" target="_blank" rel="noopener noreferrer">
+                  <Instagram size={20} className="text-secondary-200 hover:text-white cursor-pointer" />
+                </a>
               </div>
             </div>
           </div>

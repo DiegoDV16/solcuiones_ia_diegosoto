@@ -10,6 +10,7 @@ import CartPage from './pages/CartPage'
 import OrderTrackingPage from './pages/OrderTrackingPage'
 import RecommendationsPage from './pages/RecommendationsPage'
 import AboutPage from './pages/AboutPage'
+import NotFound from './pages/NotFound'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/ordenes" element={<OrderTrackingPage />} />
           <Route path="/recomendaciones" element={<RecommendationsPage />} />
           <Route path="/nosotros" element={<AboutPage />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
       <Footer />

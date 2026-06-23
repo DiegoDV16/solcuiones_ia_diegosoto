@@ -730,20 +730,39 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
 
             last_details = memory.get("last_details")
             if last_details:
+                email_already_sent = memory.get("email_sent", False)
                 want_email = any(p in msg for p in ["sí", "si", "3", "enviar", "correo", "email", "envía", "manda", "detalles", "comprobante"])
                 dont_email = any(p in msg for p in ["no", "no gracias", "no quiero", "nope", "2"])
                 if want_email and not dont_email:
+                    if email_already_sent:
+                        reply = (
+                            "⚠️ **Ya se enviaron los detalles a tu correo.**\n\n"
+                            "Por seguridad, solo puedes enviar los detalles una vez por consulta. "
+                            "Si necesitas otra copia, vuelve a realizar tu consulta y solicita el envío nuevamente."
+                        )
+                        memory.pop("last_details", None)
+                        return ChatResponse(reply=reply, session_id=session_id)
                     from backend.services.email_service import send_text_email, is_email_configured
                     if not is_email_configured():
                         reply = "El envío de correos no está configurado. Revisa el archivo .env con las credenciales SMTP."
                         return ChatResponse(reply=reply, session_id=session_id)
-                    sent = send_text_email(
-                        to_email=os.getenv("SMTP_FROM", "compus.factoryvd@gmail.com"),
-                        subject="PC Factory - Detalles de tu consulta",
-                        body=last_details,
-                    )
+                    email_body = last_details + "\n\n---\nPC Factoría Chile - TechAssist IA"
+                    try:
+                        sent = send_text_email(
+                            to_email=os.getenv("SMTP_FROM", "compus.factoryvd@gmail.com"),
+                            subject="PC Factory - Detalles de tu consulta",
+                            body=email_body,
+                        )
+                    except Exception as e:
+                        sent = False
                     if sent:
-                        reply = f"✅ **Detalles enviados** a {os.getenv('SMTP_FROM', 'compus.factoryvd@gmail.com')}. Revisa tu bandeja de entrada."
+                        memory["email_sent"] = True
+                        reply = (
+                            "✅ **Correo enviado con éxito**\n\n"
+                            "Los detalles han sido enviados a tu bandeja de entrada. "
+                            "Si no lo ves en los próximos minutos, revisa tu carpeta de spam.\n\n"
+                            "¿Necesitas algo más?"
+                        )
                     else:
                         reply = "No se pudo enviar el correo. Intenta más tarde o verifica la configuración SMTP."
                     memory.pop("last_details", None)

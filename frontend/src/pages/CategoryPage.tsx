@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
 import ProductCard from '../components/ProductCard'
+import { SkeletonCard } from '../components/Skeleton'
 import { getProducts, getCategories } from '../api/client'
 import type { Product, Category } from '../types'
+
+const PAGE_SIZE = 9
 
 export default function CategoryPage() {
   const { category } = useParams()
@@ -15,10 +18,17 @@ export default function CategoryPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [selectedCat, setSelectedCat] = useState(category || '')
   const [loading, setLoading] = useState(true)
+  const [sort, setSort] = useState('')
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     setSelectedCat(category || '')
+    setPage(1)
   }, [category])
+
+  useEffect(() => {
+    setPage(1)
+  }, [sort, selectedCat, searchQuery, dealsOnly])
 
   useEffect(() => {
     setLoading(true)
@@ -35,6 +45,18 @@ export default function CategoryPage() {
       setLoading(false)
     })
   }, [selectedCat, searchQuery, dealsOnly])
+
+  const sorted = useMemo(() => {
+    const list = [...products]
+    if (sort === 'price-asc') list.sort((a, b) => a.precio_lista - b.precio_lista)
+    else if (sort === 'price-desc') list.sort((a, b) => b.precio_lista - a.precio_lista)
+    else if (sort === 'name') list.sort((a, b) => a.nombre.localeCompare(b.nombre))
+    return list
+  }, [products, sort])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const title = dealsOnly
     ? 'Ofertas'
@@ -65,7 +87,7 @@ export default function CategoryPage() {
               </h4>
               <div className="flex flex-wrap lg:flex-col gap-1.5">
                 <button
-                  onClick={() => setSelectedCat('')}
+                  onClick={() => { setSelectedCat(''); setPage(1) }}
                   className={`text-xs px-3 py-1.5 rounded transition-colors text-left ${
                     !selectedCat && !dealsOnly
                       ? 'bg-primary text-white'
@@ -77,7 +99,7 @@ export default function CategoryPage() {
                 {categories.map((c) => (
                   <button
                     key={c.id}
-                    onClick={() => setSelectedCat(c.nombre)}
+                    onClick={() => { setSelectedCat(c.nombre); setPage(1) }}
                     className={`text-xs px-3 py-1.5 rounded transition-colors text-left capitalize ${
                       selectedCat === c.nombre
                         ? 'bg-primary text-white'
@@ -96,44 +118,79 @@ export default function CategoryPage() {
         <div className="flex-1">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm text-on-surface-variant">
-              Mostrando {products.length} resultados
+              Mostrando {sorted.length} resultados
             </span>
-            <select className="text-xs border border-outline rounded px-2 py-1.5 bg-surface-container-lowest">
-              <option>Ordenar por</option>
-              <option>Precio: Menor a Mayor</option>
-              <option>Precio: Mayor a Menor</option>
-              <option>Más Recientes</option>
-              <option>Más Vendidos</option>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="text-xs border border-outline rounded px-2 py-1.5 bg-surface-container-lowest"
+            >
+              <option value="">Ordenar por</option>
+              <option value="price-asc">Precio: Menor a Mayor</option>
+              <option value="price-desc">Precio: Mayor a Menor</option>
+              <option value="name">Nombre A-Z</option>
             </select>
           </div>
 
           {loading ? (
-            <div className="text-center py-16 text-secondary-400">Cargando...</div>
-          ) : products.length === 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
+            </div>
+          ) : paginated.length === 0 ? (
             <div className="text-center py-16">
               <p className="text-secondary-400 mb-2">No se encontraron productos</p>
               <p className="text-xs text-secondary-300">Prueba ajustando los filtros o términos de búsqueda</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {products.map((p) => (
+              {paginated.map((p) => (
                 <ProductCard key={p.sku} product={p} />
               ))}
             </div>
           )}
 
           {/* Pagination */}
-          {products.length > 0 && (
+          {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-8">
-              <button className="p-2 rounded border border-outline hover:bg-secondary-50">
+              <button
+                onClick={() => setPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="p-2 rounded border border-outline hover:bg-secondary-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
                 <ChevronLeft size={16} />
               </button>
-              <button className="px-3 py-1.5 rounded bg-primary text-white text-sm">1</button>
-              <button className="px-3 py-1.5 rounded border border-outline text-sm hover:bg-secondary-50">2</button>
-              <button className="px-3 py-1.5 rounded border border-outline text-sm hover:bg-secondary-50">3</button>
-              <span className="px-2 text-secondary-400 text-sm">...</span>
-              <button className="px-3 py-1.5 rounded border border-outline text-sm hover:bg-secondary-50">12</button>
-              <button className="p-2 rounded border border-outline hover:bg-secondary-50">
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let pageNum: number
+                if (totalPages <= 7) {
+                  pageNum = i + 1
+                } else if (currentPage <= 4) {
+                  pageNum = i + 1
+                } else if (currentPage >= totalPages - 3) {
+                  pageNum = totalPages - 6 + i
+                } else {
+                  pageNum = currentPage - 3 + i
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setPage(pageNum)}
+                    className={`px-3 py-1.5 rounded text-sm ${
+                      currentPage === pageNum
+                        ? 'bg-primary text-white'
+                        : 'border border-outline hover:bg-secondary-50'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                )
+              })}
+              <button
+                onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="p-2 rounded border border-outline hover:bg-secondary-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
                 <ChevronRight size={16} />
               </button>
             </div>

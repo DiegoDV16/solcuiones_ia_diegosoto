@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, MemoryStick, Cpu, Monitor, HardDrive, Database, ArrowRight } from 'lucide-react'
 import ProductCard from '../components/ProductCard'
+import { SkeletonCard } from '../components/Skeleton'
 import { getProducts, getCategories } from '../api/client'
 import type { Product, Category } from '../types'
 
@@ -49,6 +50,7 @@ export default function HomePage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
   useEffect(() => {
     Promise.all([getProducts(), getCategories()]).then(([prods, cats]) => {
@@ -58,7 +60,7 @@ export default function HomePage() {
     })
   }, [])
 
-  const formatPrice = (p: number) => `$${(p / 1000).toFixed(0)}.{${p % 1000}}`
+  const formatPrice = (p: number) => `$${p.toLocaleString('es-CL')} CLP`
 
   return (
     <div>
@@ -79,6 +81,11 @@ export default function HomePage() {
                 placeholder="Buscar"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && search.trim()) {
+                    navigate(`/categoria?search=${encodeURIComponent(search.trim())}`)
+                  }
+                }}
                 className="w-full pl-12 pr-4 py-3 rounded bg-white/10 border border-white/20 text-white placeholder:text-secondary-300 focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -139,8 +146,8 @@ export default function HomePage() {
                   {promo.name}
                 </p>
                 <div className="flex items-baseline gap-2">
-                  <span className="font-bold text-lg">${(finalPrice / 1000).toFixed(0)}.{String(finalPrice % 1000).padStart(3, '0')}</span>
-                  <span className="text-xs text-secondary-400 line-through">${(promo.original / 1000).toFixed(0)}.{String(promo.original % 1000).padStart(3, '0')}</span>
+                  <span className="font-bold text-lg">{formatPrice(finalPrice)}</span>
+                  <span className="text-xs text-secondary-400 line-through">{formatPrice(promo.original)}</span>
                   <span className="chip-instock text-[10px] px-1.5 py-0.5">-{discountPct}% DCTO</span>
                 </div>
               </Link>
@@ -168,7 +175,11 @@ export default function HomePage() {
       <section className="max-w-content mx-auto px-margin-mobile lg:px-margin-desktop py-8 pb-16">
         <h2 className="text-xl font-semibold mb-6">Productos Destacados</h2>
         {loading ? (
-          <div className="text-center py-12 text-secondary-400">Cargando...</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {products.slice(0, 8).map((p) => (

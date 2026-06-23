@@ -1,17 +1,27 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ShoppingCart } from 'lucide-react'
+import { ShoppingCart, Check } from 'lucide-react'
 import type { Product } from '../types'
 import { formatPrice, discountedPrice, getStockLabel } from '../api/client'
+import { useCart } from '../context/CartContext'
 
 interface Props {
   product: Product
 }
 
 export default function ProductCard({ product }: Props) {
+  const cart = useCart()
   const stock = getStockLabel(product.total_stock)
   const hasDiscount = product.descuento_efectivo > 0
   const finalPrice = discountedPrice(product.precio_lista, product.descuento_efectivo)
   const categorySlug = product.categoria?.toLowerCase() || ''
+  const [added, setAdded] = useState(false)
+
+  const handleAdd = () => {
+    cart.add(product.sku, product.nombre, finalPrice)
+    setAdded(true)
+    setTimeout(() => setAdded(false), 2000)
+  }
 
   return (
     <div className="card group hover:border-primary transition-colors duration-200 flex flex-col">
@@ -54,10 +64,15 @@ export default function ProductCard({ product }: Props) {
             )}
           </div>
 
-          <Link to={`/producto/${product.sku}`} className="btn-primary w-full text-center flex items-center justify-center gap-2 text-xs">
-            <ShoppingCart size={14} />
-            Agregar al Carrito
-          </Link>
+          <button
+            onClick={handleAdd}
+            className={`btn-primary w-full flex items-center justify-center gap-2 text-xs ${
+              added ? 'bg-tertiary-600' : ''
+            }`}
+          >
+            {added ? <Check size={14} /> : <ShoppingCart size={14} />}
+            {added ? 'Agregado' : 'Agregar al Carrito'}
+          </button>
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bot, MemoryStick, CheckCircle, Truck, HeadphonesIcon, Send, Paperclip, Cpu, Monitor, ShoppingCart } from 'lucide-react'
-import { chatSend } from '../api/client'
+import { useNavigate } from 'react-router-dom'
+import { Bot, MemoryStick, CheckCircle, Truck, HeadphonesIcon, Send, Paperclip, RefreshCw, Cpu, Monitor, ShoppingCart } from 'lucide-react'
+import { chatSend, chatReset } from '../api/client'
 import type { ChatMessage } from '../types'
 
 const QUICK_ACTIONS = [
@@ -20,8 +21,9 @@ export default function AIAssistantPage() {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sessionId] = useState(() => `full_${Date.now()}`)
+  const [sessionId, setSessionId] = useState(() => `full_${Date.now()}`)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -63,14 +65,18 @@ export default function AIAssistantPage() {
 
             <nav className="space-y-1">
               {[
-                { icon: <Bot size={14} />, label: 'Asistente' },
-                { icon: <MemoryStick size={14} />, label: 'Especificaciones' },
-                { icon: <CheckCircle size={14} />, label: 'Compatibilidad' },
-                { icon: <Truck size={14} />, label: 'Estado de Orden' },
-                { icon: <HeadphonesIcon size={14} />, label: 'Soporte Humano' },
+                { icon: <Bot size={14} />, label: 'Asistente', path: '/asistente' },
+                { icon: <MemoryStick size={14} />, label: 'Especificaciones', path: '/categoria' },
+                { icon: <CheckCircle size={14} />, label: 'Compatibilidad', path: '/asistente' },
+                { icon: <Truck size={14} />, label: 'Estado de Orden', path: '/ordenes' },
+                { icon: <HeadphonesIcon size={14} />, label: 'Soporte Humano', path: 'mailto:soporte@pcfactoria.cl' },
               ].map((item) => (
                 <button
                   key={item.label}
+                  onClick={() => {
+                    if (item.path.startsWith('mailto:')) window.location.href = item.path
+                    else navigate(item.path)
+                  }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded hover:bg-secondary-50 transition-colors text-left"
                 >
                   {item.icon}
@@ -120,7 +126,20 @@ export default function AIAssistantPage() {
             <span className="font-mono text-xs text-secondary-200 ml-2">
               Terminal de Soporte v2.4 — Motor de Inteligencia de Hardware
             </span>
-            <span className="ml-auto chip-instock text-[10px]">SISTEMA LISTO</span>
+            <button
+              onClick={async () => {
+                try { await chatReset(sessionId) } catch {}
+                setMessages([
+                  { role: 'assistant', content: 'La conversación se ha reiniciado. ¿En qué puedo ayudarte?' },
+                ])
+                setSessionId(`full_${Date.now()}`)
+              }}
+              className="ml-auto text-secondary-200 hover:text-white p-1"
+              title="Reiniciar conversación"
+            >
+              <RefreshCw size={16} />
+            </button>
+            <span className="chip-instock text-[10px]">SISTEMA LISTO</span>
           </div>
 
           {/* Messages */}
