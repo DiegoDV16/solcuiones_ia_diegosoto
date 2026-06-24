@@ -104,32 +104,6 @@ export default function AIAssistantPage() {
               </button>
             </div>
 
-            {/* Current Config */}
-            <div className="border-t border-outline pt-4">
-              <h4 className="font-mono text-[10px] text-secondary-400 uppercase tracking-wider mb-2">
-                Configuración Actual
-              </h4>
-              <div className="space-y-1">
-                <button
-                  onClick={() => handleSendMessage('Quiero información sobre la RTX 4070')}
-                  className="w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-secondary-50 transition-colors text-left"
-                >
-                  <span className="text-on-surface-variant">RTX 4070 Dual</span>
-                  <span className="font-mono">$599.00</span>
-                </button>
-                <button
-                  onClick={() => handleSendMessage('Quiero información sobre el i7-13700K')}
-                  className="w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-secondary-50 transition-colors text-left"
-                >
-                  <span className="text-on-surface-variant">i7-13700K</span>
-                  <span className="font-mono">$385.50</span>
-                </button>
-                <div className="border-t border-outline pt-2 mt-1 flex items-center justify-between text-sm font-semibold">
-                  <span>Total</span>
-                  <span className="font-mono">$984.50</span>
-                </div>
-              </div>
-            </div>
           </div>
         </aside>
 
