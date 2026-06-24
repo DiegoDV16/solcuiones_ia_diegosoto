@@ -6,6 +6,7 @@ import HomePage from './pages/HomePage'
 import CategoryPage from './pages/CategoryPage'
 import ProductDetailPage from './pages/ProductDetailPage'
 import AIAssistantPage from './pages/AIAssistantPage'
+import AccountPage from './pages/AccountPage'
 import CartPage from './pages/CartPage'
 import OrderTrackingPage from './pages/OrderTrackingPage'
 import RecommendationsPage from './pages/RecommendationsPage'
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/ordenes" element={<OrderTrackingPage />} />
           <Route path="/recomendaciones" element={<RecommendationsPage />} />
           <Route path="/nosotros" element={<AboutPage />} />
+          <Route path="/cuenta" element={<AccountPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

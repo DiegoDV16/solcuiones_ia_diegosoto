@@ -47,8 +47,20 @@ export default function AIAssistantPage() {
     setLoading(false)
   }
 
-  const handleQuickAction = (label: string) => {
-    setInput(label)
+  const handleSendMessage = async (msg: string) => {
+    if (loading) return
+    setMessages((prev) => [...prev, { role: 'user', content: msg }])
+    setLoading(true)
+    try {
+      const res = await chatSend(msg, sessionId)
+      setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }])
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Error: No se pudo conectar con el asistente. Intenta de nuevo.' },
+      ])
+    }
+    setLoading(false)
   }
 
   return (
@@ -65,17 +77,18 @@ export default function AIAssistantPage() {
 
             <nav className="space-y-1">
               {[
-                { icon: <Bot size={14} />, label: 'Asistente', path: '/asistente' },
-                { icon: <MemoryStick size={14} />, label: 'Especificaciones', path: '/categoria' },
-                { icon: <CheckCircle size={14} />, label: 'Compatibilidad', path: '/asistente' },
-                { icon: <Truck size={14} />, label: 'Estado de Orden', path: '/ordenes' },
-                { icon: <HeadphonesIcon size={14} />, label: 'Soporte Humano', path: 'mailto:soporte@pcfactoria.cl' },
+                { icon: <Bot size={14} />, label: 'Asistente', path: '/asistente', chat: undefined },
+                { icon: <MemoryStick size={14} />, label: 'Especificaciones', path: '/categoria', chat: undefined },
+                { icon: <CheckCircle size={14} />, label: 'Compatibilidad', path: undefined, chat: 'Quiero verificar compatibilidad de componentes' },
+                { icon: <Truck size={14} />, label: 'Estado de Orden', path: '/ordenes', chat: undefined },
+                { icon: <HeadphonesIcon size={14} />, label: 'Soporte Humano', path: 'mailto:soporte@pcfactoria.cl', chat: undefined },
               ].map((item) => (
                 <button
                   key={item.label}
                   onClick={() => {
-                    if (item.path.startsWith('mailto:')) window.location.href = item.path
-                    else navigate(item.path)
+                    if (item.path?.startsWith('mailto:')) window.location.href = item.path
+                    else if (item.path) navigate(item.path)
+                    else if (item.chat) handleSendMessage(item.chat)
                   }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded hover:bg-secondary-50 transition-colors text-left"
                 >
@@ -86,8 +99,8 @@ export default function AIAssistantPage() {
             </nav>
 
             <div className="border-t border-outline pt-4">
-              <button className="btn-primary w-full text-sm" onClick={() => handleQuickAction('Nuevo Armado')}>
-                Nuevo Armado
+              <button className="btn-primary w-full text-sm" onClick={() => handleSendMessage('Quiero armar una PC nueva')}>
+                + Nuevo Armado
               </button>
             </div>
 
@@ -96,16 +109,22 @@ export default function AIAssistantPage() {
               <h4 className="font-mono text-[10px] text-secondary-400 uppercase tracking-wider mb-2">
                 Configuración Actual
               </h4>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
+              <div className="space-y-1">
+                <button
+                  onClick={() => handleSendMessage('Quiero información sobre la RTX 4070')}
+                  className="w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-secondary-50 transition-colors text-left"
+                >
                   <span className="text-on-surface-variant">RTX 4070 Dual</span>
                   <span className="font-mono">$599.00</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Quiero información sobre el i7-13700K')}
+                  className="w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-secondary-50 transition-colors text-left"
+                >
                   <span className="text-on-surface-variant">i7-13700K</span>
                   <span className="font-mono">$385.50</span>
-                </div>
-                <div className="border-t border-outline pt-2 flex items-center justify-between text-sm font-semibold">
+                </button>
+                <div className="border-t border-outline pt-2 mt-1 flex items-center justify-between text-sm font-semibold">
                   <span>Total</span>
                   <span className="font-mono">$984.50</span>
                 </div>
@@ -184,7 +203,7 @@ export default function AIAssistantPage() {
               {QUICK_ACTIONS.map((action) => (
                 <button
                   key={action.label}
-                  onClick={() => handleQuickAction(action.label)}
+                  onClick={() => handleSendMessage(action.label)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-outline hover:bg-secondary-50 transition-colors"
                 >
                   {action.icon}

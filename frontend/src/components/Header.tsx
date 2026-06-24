@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Search, ShoppingCart, User, Menu, X, Cpu } from 'lucide-react'
+import { Search, ShoppingCart, User, Menu, X, Cpu, Package, Heart, HeadphonesIcon } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 
 const CATEGORIES = [
@@ -14,8 +14,20 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { count } = useCart()
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -65,9 +77,39 @@ export default function Header() {
                 </span>
               )}
             </button>
-            <button className="p-2 text-secondary-400 hover:text-on-surface transition-colors hidden sm:block">
-              <User size={20} />
-            </button>
+            <div className="relative hidden sm:block" ref={userMenuRef}>
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="p-2 text-secondary-400 hover:text-on-surface transition-colors"
+              >
+                <User size={20} />
+              </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-surface border border-outline rounded-lg shadow-lg py-1 z-50">
+                  <Link
+                    to="/ordenes"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-on-surface hover:bg-secondary-50 transition-colors"
+                  >
+                    <Package size={16} /> Mis Órdenes
+                  </Link>
+                  <Link
+                    to="/categoria?favorites=true"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-on-surface hover:bg-secondary-50 transition-colors"
+                  >
+                    <Heart size={16} /> Favoritos
+                  </Link>
+                  <Link
+                    to="/asistente"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-on-surface hover:bg-secondary-50 transition-colors"
+                  >
+                    <HeadphonesIcon size={16} /> Soporte
+                  </Link>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="md:hidden p-2 text-secondary-400 hover:text-on-surface"
