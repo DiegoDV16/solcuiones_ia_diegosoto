@@ -37,7 +37,6 @@ try:
     from langchain_core.tools import tool
     from langchain.agents import create_react_agent
     from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-    from langchain_core.chat_history import InMemoryChatMessageHistory
     import numpy as np
 
     import importlib
@@ -57,7 +56,6 @@ try:
     _HAS_LLM = bool(token)
     _chat_llm = None
     _app_agent = None
-    _store: dict[str, InMemoryChatMessageHistory] = {}
 
     if _HAS_LLM:
         _chat_llm = ChatOpenAI(
@@ -197,15 +195,80 @@ Formatea precios en pesos chilenos ($999,990 CLP)."""
 
         _app_agent = create_react_agent(_chat_llm, tools, prompt=prompt)
 
+    import sqlite3
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    DB_PATH = str(ROOT / "Scripts" / "catalogo_pc_factory.db")
+
+    class SQLiteChatMessageHistory:
+        def __init__(self, session_id: str):
+            self.session_id = session_id
+            conn = self._connect()
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS chat_history ("
+                "  session_id TEXT, message_idx INTEGER, role TEXT, content TEXT, "
+                "  PRIMARY KEY (session_id, message_idx)"
+                ")"
+            )
+            conn.close()
+
+        def _connect(self):
+            return sqlite3.connect(DB_PATH)
+
+        @property
+        def messages(self):
+            conn = self._connect()
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT role, content FROM chat_history WHERE session_id=? ORDER BY message_idx",
+                (self.session_id,),
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                if r["role"] == "human":
+                    result.append(HumanMessage(content=r["content"]))
+                elif r["role"] == "ai":
+                    result.append(AIMessage(content=r["content"]))
+            return result
+
+        def add_user_message(self, text: str):
+            conn = self._connect()
+            max_idx = conn.execute(
+                "SELECT COALESCE(MAX(message_idx), -1) AS m FROM chat_history WHERE session_id=?",
+                (self.session_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO chat_history (session_id, message_idx, role, content) VALUES (?, ?, ?, ?)",
+                (self.session_id, max_idx + 1, "human", text),
+            )
+            conn.commit()
+            conn.close()
+
+        def add_ai_message(self, text: str):
+            conn = self._connect()
+            max_idx = conn.execute(
+                "SELECT COALESCE(MAX(message_idx), -1) AS m FROM chat_history WHERE session_id=?",
+                (self.session_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO chat_history (session_id, message_idx, role, content) VALUES (?, ?, ?, ?)",
+                (self.session_id, max_idx + 1, "ai", text),
+            )
+            conn.commit()
+            conn.close()
+
+        def clear(self):
+            conn = self._connect()
+            conn.execute("DELETE FROM chat_history WHERE session_id=?", (self.session_id,))
+            conn.commit()
+            conn.close()
+
     def _get_history(sid: str):
-        if sid not in _store:
-            _store[sid] = InMemoryChatMessageHistory()
-        return _store[sid]
+        return SQLiteChatMessageHistory(sid)
 
 except ImportError:
     _HAS_LLM = False
-
-_fallback_store: dict[str, dict] = {}
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -323,10 +386,26 @@ async def chat_endpoint(req: ChatRequest):
 
 @router.post("/chat/reset")
 async def reset_chat(session_id: str = "default"):
-    if session_id in _store:
-        _store[session_id].clear()
+    import sqlite3
+    db_path = ROOT / "Scripts" / "catalogo_pc_factory.db"
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("DELETE FROM chat_history WHERE session_id=?", (session_id,))
+        conn.execute("DELETE FROM session_data WHERE session_id=?", (session_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     response_cache.invalidate(session_id)
     return {"status": "reset"}
+
+
+BUILD_STRATEGIES = [
+    {"name": "Máximo Rendimiento", "desc": True,  "gpu_first": False},
+    {"name": "Enfoque GPU",       "desc": True,  "gpu_first": True},
+    {"name": "Balance calidad",   "desc": False, "gpu_first": False},
+    {"name": "Enfoque CPU",       "desc": False, "gpu_first": True},
+]
 
 
 def _fallback_chat(message: str, session_id: str) -> ChatResponse:
@@ -334,14 +413,53 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
     db_path = ROOT / "Scripts" / "catalogo_pc_factory.db"
     msg = message.lower().strip()
 
-    if session_id not in _fallback_store:
-        _fallback_store[session_id] = {}
-    memory = _fallback_store[session_id]
-
     reply = ""
     try:
         with sqlite3.connect(str(db_path)) as conn:
             conn.row_factory = sqlite3.Row
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS session_data ("
+                "  session_id TEXT, key TEXT, value TEXT, "
+                "  PRIMARY KEY (session_id, key)"
+                ")"
+            )
+
+            def _sget(key: str, default=None):
+                row = conn.execute(
+                    "SELECT value FROM session_data WHERE session_id=? AND key=?",
+                    (session_id, key),
+                ).fetchone()
+                if row is None:
+                    return default
+                val: str = row["value"]
+                if default is False or default is True:
+                    return val == "true"
+                return val
+
+            def _sset(key: str, value):
+                conn.execute(
+                    "INSERT OR REPLACE INTO session_data (session_id, key, value) VALUES (?, ?, ?)",
+                    (session_id, key, str(value)),
+                )
+
+            def _sdel(key: str):
+                conn.execute(
+                    "DELETE FROM session_data WHERE session_id=? AND key=?",
+                    (session_id, key),
+                )
+
+            def _sclear():
+                conn.execute(
+                    "DELETE FROM session_data WHERE session_id=?",
+                    (session_id,),
+                )
+
+            def _has_any() -> bool:
+                row = conn.execute(
+                    "SELECT 1 FROM session_data WHERE session_id=? LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                return row is not None
 
             CATEGORY_KEYWORDS = {
                 1: ["procesador", "cpu"],
@@ -396,10 +514,11 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     return row["precio_lista"] - int(row["precio_lista"] * row["descuento_efectivo"])
                 return 0
 
-            def _list_category_cheapest_first(cat_id: int, exclude_skus: set = None) -> list[dict]:
+            def _list_category(cat_id: int, exclude_skus: set = None, desc: bool = True) -> list[dict]:
                 exclude_skus = exclude_skus or set()
+                order = "DESC" if desc else "ASC"
                 rows = conn.execute(
-                    "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista ASC",
+                    f"SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista {order}",
                     (cat_id,),
                 ).fetchall()
                 result = []
@@ -430,10 +549,11 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                 },
             ]
 
-            def _build_pc_by_budget(budget: int, conn, memory) -> str:
+            def _build_pc_by_budget(budget: int, conn, strategy: dict) -> str:
                 CATEGORY_MAP = {"CPU": 1, "GPU": 2, "RAM": 3, "Storage": 4, "Motherboard": 5, "PSU": 9, "Case": 10, "Cooler": 11}
-                COMPONENT_ORDER = ["CPU", "Motherboard", "RAM", "GPU", "Storage", "PSU", "Case", "Cooler"]
+                COMPONENT_ORDER = ["GPU", "CPU", "Motherboard", "RAM", "Storage", "PSU", "Case", "Cooler"] if strategy["gpu_first"] else ["CPU", "Motherboard", "RAM", "GPU", "Storage", "PSU", "Case", "Cooler"]
                 LABELS = {"CPU": "CPU", "Motherboard": "Placa Madre", "RAM": "RAM", "GPU": "Tarjeta de Video", "Storage": "Almacenamiento", "PSU": "Fuente de Poder", "Case": "Gabinete", "Cooler": "Refrigeración"}
+                desc = strategy["desc"]
 
                 best_build = None
                 best_total = 0
@@ -444,102 +564,69 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     remaining = budget
                     platform_valid = True
 
+                    def _pick(items: list, remaining: int, desc: bool) -> tuple | None:
+                        items = sorted(items, key=lambda x: x[1], reverse=desc)
+                        for sku, ep in items:
+                            if ep <= remaining:
+                                return (sku, ep)
+                        return items[-1] if items else None
+
                     for comp in COMPONENT_ORDER:
                         if comp == "Motherboard":
-                            available_mbs = []
-                            for mb_sku in platform["mbs"]:
-                                if mb_sku not in used_skus:
-                                    ep = _get_effective_price(mb_sku)
-                                    available_mbs.append((mb_sku, ep))
-                            available_mbs.sort(key=lambda x: x[1], reverse=True)
-                            chosen = None
-                            for sku, ep in available_mbs:
-                                if ep <= remaining:
-                                    chosen = (sku, ep)
-                                    break
-                            if not chosen and available_mbs:
-                                chosen = available_mbs[-1]
-                            if chosen:
-                                used_skus.add(chosen[0])
-                                build[comp] = {"sku": chosen[0], "precio": chosen[1]}
-                                remaining -= chosen[1]
-                            else:
+                            mbs = [(sku, _get_effective_price(sku)) for sku in platform["mbs"] if sku not in used_skus]
+                            chosen = _pick(mbs, remaining, desc)
+                            if not chosen:
                                 platform_valid = False
                                 break
+                            used_skus.add(chosen[0])
+                            build[comp] = {"sku": chosen[0], "precio": chosen[1]}
+                            remaining -= chosen[1]
 
                         elif comp == "CPU":
-                            available_cpus = []
-                            for cpu_sku in platform["cpus"]:
-                                if cpu_sku not in used_skus:
-                                    ep = _get_effective_price(cpu_sku)
-                                    available_cpus.append((cpu_sku, ep))
-                            available_cpus.sort(key=lambda x: x[1], reverse=True)
-                            chosen = None
-                            for sku, ep in available_cpus:
-                                if ep <= remaining:
-                                    chosen = (sku, ep)
-                                    break
-                            if not chosen and available_cpus:
-                                chosen = available_cpus[-1]
-                            if chosen:
-                                used_skus.add(chosen[0])
-                                build[comp] = {"sku": chosen[0], "precio": chosen[1]}
-                                remaining -= chosen[1]
-                            else:
+                            cpus = [(sku, _get_effective_price(sku)) for sku in platform["cpus"] if sku not in used_skus]
+                            chosen = _pick(cpus, remaining, desc)
+                            if not chosen:
                                 platform_valid = False
                                 break
+                            used_skus.add(chosen[0])
+                            build[comp] = {"sku": chosen[0], "precio": chosen[1]}
+                            remaining -= chosen[1]
 
                         elif comp == "RAM":
                             ram_type = platform["ram_type"]
                             ram_rows = conn.execute(
                                 "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=3 ORDER BY precio_lista ASC"
                             ).fetchall()
-                            available_ram = []
+                            rams = []
                             for r in ram_rows:
                                 if r["sku"] not in used_skus:
                                     name_lower = r["nombre"].lower()
-                                    if ram_type == "DDR4" and "ddr4" in name_lower:
-                                        ep = _get_effective_price(r["sku"])
-                                        available_ram.append((r["sku"], ep))
-                                    elif ram_type == "DDR5" and "ddr5" in name_lower:
-                                        ep = _get_effective_price(r["sku"])
-                                        available_ram.append((r["sku"], ep))
-                            available_ram.sort(key=lambda x: x[1], reverse=True)
-                            chosen = None
-                            for sku, ep in available_ram:
-                                if ep <= remaining:
-                                    chosen = (sku, ep)
-                                    break
-                            if not chosen and available_ram:
-                                chosen = available_ram[-1]
-                            if chosen:
-                                used_skus.add(chosen[0])
-                                build[comp] = {"sku": chosen[0], "precio": chosen[1]}
-                                remaining -= chosen[1]
-                            else:
+                                    if (ram_type == "DDR4" and "ddr4" in name_lower) or (ram_type == "DDR5" and "ddr5" in name_lower):
+                                        rams.append((r["sku"], _get_effective_price(r["sku"])))
+                            chosen = _pick(rams, remaining, desc)
+                            if not chosen:
                                 platform_valid = False
                                 break
+                            used_skus.add(chosen[0])
+                            build[comp] = {"sku": chosen[0], "precio": chosen[1]}
+                            remaining -= chosen[1]
 
                         else:
                             cat_id = CATEGORY_MAP[comp]
-                            avail = _list_category_cheapest_first(cat_id, used_skus)
-                            avail.sort(key=lambda x: x["precio_efectivo"], reverse=True)
+                            avail = _list_category(cat_id, used_skus, desc)
                             chosen = None
-                            for item in avail:
-                                if item["precio_efectivo"] <= remaining:
-                                    chosen = item
-                                    break
-                            if not chosen and avail:
-                                chosen = avail[-1]
-                            if chosen:
-                                used_skus.add(chosen["sku"])
-                                build[comp] = {"sku": chosen["sku"], "precio": chosen["precio_efectivo"]}
-                                remaining -= chosen["precio_efectivo"]
+                            if not strategy["gpu_first"] and desc:
+                                chosen = next((a for a in avail if a["precio_efectivo"] <= remaining), avail[-1] if avail else None)
                             else:
+                                chosen = next((a for a in avail if a["precio_efectivo"] <= remaining), avail[-1] if avail else None)
+                            if not chosen:
                                 if comp in ["Cooler", "Case"]:
                                     continue
                                 platform_valid = False
                                 break
+                            used_skus.add(chosen["sku"])
+                            build[comp] = {"sku": chosen["sku"], "precio": chosen["precio_efectivo"]}
+                            remaining -= chosen["precio_efectivo"]
 
                     if platform_valid:
                         total = budget - remaining
@@ -556,23 +643,24 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                         "Intenta con un monto mayor o pregunta por componentes individuales."
                     )
 
-                lines = [f"**PC Armada - {best_build['platform']}**\n"]
+                lines = [f"**PC Armada - {best_build['platform']} ({strategy['name']})**\n"]
                 lines.append(f"Presupuesto: ${budget:,} CLP")
                 lines.append(f"Total: ${best_build['total']:,} CLP")
                 if best_build['remaining'] > 0:
                     lines.append(f"Sobrante: ${best_build['remaining']:,} CLP")
                 lines.append("")
-                for comp in COMPONENT_ORDER:
+                for comp in ["CPU", "Motherboard", "RAM", "GPU", "Storage", "PSU", "Case", "Cooler"]:
                     if comp in best_build:
                         info = best_build[comp]
-                        sku = info["sku"]
-                        name_row = conn.execute("SELECT nombre FROM products WHERE sku=?", (sku,)).fetchone()
-                        name = name_row["nombre"] if name_row else sku
+                        name_row = conn.execute("SELECT nombre FROM products WHERE sku=?", (info["sku"],)).fetchone()
+                        name = name_row["nombre"] if name_row else info["sku"]
                         lines.append(f"• **{LABELS[comp]}:** {name} - ${info['precio']:,} CLP")
                 lines.append("")
+                lines.append("💡 _Escribe **otra opción** para ver una configuración alternativa._")
                 lines.append("📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'.")
 
-                memory["last_details"] = "\n".join(lines)
+                _sset("last_details", "\n".join(lines))
+                _sset("last_budget", str(budget))
                 return "\n".join(lines)
 
             if any(p in msg for p in ["envío al día siguiente", "next day shipping", "envio rapido", "despacho"]):
@@ -600,7 +688,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
 
             greeting_words = ["hola", "buenas", "buen dia", "buena tarde", "buena noche", "saludos", "hey", "que tal"]
             if any(g in msg for g in greeting_words) and len(msg) < 40:
-                memory.clear()
+                _sclear()
                 reply = (
                     "¡Hola! Soy TechAssist de PC Factory.\n\n"
                     "Puedo ayudarte con:\n"
@@ -620,7 +708,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
             if wants_cheapest or wants_expensive:
                 cat_id = _match_category(msg)
                 if cat_id is None:
-                    cat_id = memory.get("last_category")
+                    cat_id = _sget("last_category")
 
                 price_col = "precio_lista" if wants_sin_descuento else "(precio_lista - CAST(precio_lista * descuento_efectivo AS INT))"
                 order = "ASC" if wants_cheapest else "DESC"
@@ -665,7 +753,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     )
                 else:
                     reply = f"No encontré productos que coincidan con tu búsqueda."
-                memory["last_details"] = reply
+                _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
@@ -684,7 +772,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     reply = "\n".join(lines)
                 else:
                     reply = "Actualmente no hay productos con descuento activo."
-                memory["last_details"] = reply
+                _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
@@ -704,7 +792,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     f"**Producto más barato del catálogo:**\n\n"
                     f"- {row['nombre']} - {price_str} | {stock_info}"
                 )
-                memory["last_details"] = reply
+                _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
@@ -712,25 +800,49 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
             pure_number = re.match(r"^\d{4,}$", msg.replace(".", "").replace(" ", ""))
             wants_budget = any(p in msg for p in ["presupuesto", "armar", "arma una pc", "arma un pc", "armame", "build", "configuracion", "configuración", "arreglo", "nuevo armado", "nueva pc"])
             if wants_budget or "presupuesto" in msg or "presupuesto de" in msg or pure_number:
-                budget_match = re.search(r"(\d[\d.]*)", msg.replace(",", ""))
                 budget = None
-                if budget_match:
-                    raw = budget_match.group(1).replace(".", "")
-                    try:
-                        budget = int(raw)
-                    except ValueError:
-                        pass
+                raw_msg = msg.replace(",", "")
+                millones = re.search(r"(\d+(?:\.\d+)?)\s*(?:millones|millón)", raw_msg)
+                miles = re.search(r"(\d+(?:\.\d+)?)\s*(?:mil)", raw_msg)
+                if millones:
+                    budget = int(float(millones.group(1).replace(".", "")) * 1000000)
+                elif miles:
+                    budget = int(float(miles.group(1).replace(".", "")) * 1000)
+                else:
+                    match = re.search(r"(\d[\d.]*)", raw_msg)
+                    if match:
+                        raw = match.group(1).replace(".", "")
+                        try:
+                            budget = int(raw)
+                        except ValueError:
+                            pass
 
                 if budget:
-                    reply = _build_pc_by_budget(budget, conn, memory)
+                    last_budget_key = f"build_count_{budget}"
+                    build_count = int(_sget(last_budget_key, "0"))
+                    strategy = BUILD_STRATEGIES[build_count % len(BUILD_STRATEGIES)]
+                    _sset(last_budget_key, str(build_count + 1))
+                    reply = _build_pc_by_budget(budget, conn, strategy)
                     return ChatResponse(reply=reply, session_id=session_id)
                 else:
                     reply = "¿Cuál es tu presupuesto? Dime un monto como '300000' o '500 mil' y armaré una PC compatible."
                     return ChatResponse(reply=reply, session_id=session_id)
 
-            last_details = memory.get("last_details")
+            # "otra opción" → request next build strategy
+            if any(p in msg for p in ["otra opcion", "otra opción", "alternativa", "variante", "diferente", "otra configuracion", "otra configuración"]):
+                last_budget = _sget("last_budget")
+                if last_budget:
+                    prev_budget = int(last_budget)
+                    last_budget_key = f"build_count_{prev_budget}"
+                    build_count = int(_sget(last_budget_key, "0"))
+                    strategy = BUILD_STRATEGIES[build_count % len(BUILD_STRATEGIES)]
+                    _sset(last_budget_key, str(build_count + 1))
+                    reply = _build_pc_by_budget(prev_budget, conn, strategy)
+                    return ChatResponse(reply=reply, session_id=session_id)
+
+            last_details = _sget("last_details")
             if last_details:
-                email_already_sent = memory.get("email_sent", False)
+                email_already_sent = _sget("email_sent", False)
                 want_email = any(p in msg for p in ["sí", "si", "3", "enviar", "correo", "email", "envía", "manda", "detalles", "comprobante"])
                 dont_email = any(p in msg for p in ["no", "no gracias", "no quiero", "nope", "2"])
                 if want_email and not dont_email:
@@ -740,13 +852,21 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             "Por seguridad, solo puedes enviar los detalles una vez por consulta. "
                             "Si necesitas otra copia, vuelve a realizar tu consulta y solicita el envío nuevamente."
                         )
-                        memory.pop("last_details", None)
+                        _sdel("last_details")
                         return ChatResponse(reply=reply, session_id=session_id)
                     from backend.services.email_service import send_text_email, is_email_configured
                     if not is_email_configured():
                         reply = "El envío de correos no está configurado. Revisa el archivo .env con las credenciales SMTP."
                         return ChatResponse(reply=reply, session_id=session_id)
-                    email_body = last_details + "\n\n---\nPC Factoría Chile - TechAssist IA"
+                    email_body = (
+                        "¡Hola!\n\n"
+                        "Gracias por consultar en PC Factory. Aquí están los detalles que solicitaste:\n\n"
+                        + ("─" * 40) + "\n"
+                        + last_details
+                        + "\n" + ("─" * 40) + "\n\n"
+                        "Si tienes más dudas, responde este correo o vuelve a escribirme en la web.\n\n"
+                        "Saludos,\nTechAssist — PC Factory Chile"
+                    )
                     try:
                         sent = send_text_email(
                             to_email=os.getenv("SMTP_FROM", "compus.factoryvd@gmail.com"),
@@ -756,7 +876,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     except Exception as e:
                         sent = False
                     if sent:
-                        memory["email_sent"] = True
+                        _sset("email_sent", True)
                         reply = (
                             "✅ **Correo enviado con éxito**\n\n"
                             "Los detalles han sido enviados a tu bandeja de entrada. "
@@ -765,10 +885,10 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                         )
                     else:
                         reply = "No se pudo enviar el correo. Intenta más tarde o verifica la configuración SMTP."
-                    memory.pop("last_details", None)
+                    _sdel("last_details")
                     return ChatResponse(reply=reply, session_id=session_id)
                 if dont_email:
-                    memory.pop("last_details", None)
+                    _sdel("last_details")
                     reply = "Entendido. ¿Necesitas algo más?"
                     return ChatResponse(reply=reply, session_id=session_id)
 
@@ -792,13 +912,13 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             stock_info = _format_product_stock(r)
                             lines.append(f"- {r['nombre']} -- {stock_info}")
                         reply = "\n".join(lines)
-                        memory["last_category"] = cat_id
-                        memory["last_details"] = reply
+                        _sset("last_category", str(cat_id))
+                        _sset("last_details", reply)
                         reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                         return ChatResponse(reply=reply, session_id=session_id)
 
-                if wants_stock and not wants_stock_detail and memory.get("last_category") is not None:
-                    cat_id = memory["last_category"]
+                if wants_stock and not wants_stock_detail and _sget("last_category") is not None:
+                    cat_id = int(_sget("last_category"))
                     rows = conn.execute(
                         "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista",
                         (cat_id,),
@@ -810,7 +930,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             stock_info = _format_product_stock(r)
                             lines.append(f"- {r['nombre']} -- {stock_info}")
                         reply = "\n".join(lines)
-                        memory["last_details"] = reply
+                        _sset("last_details", reply)
                         reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                         return ChatResponse(reply=reply, session_id=session_id)
 
@@ -828,7 +948,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     f"• Productos con stock bajo (<5 uds): {low_stock}\n\n"
                     f"Para ver stock por producto, pregúntame por una categoría o producto específico."
                 )
-                memory["last_details"] = reply
+                _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
@@ -841,13 +961,13 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     lines.append(f"• **{cname}** ({count} productos)")
                 lines.append("\n_Pregúntame por cualquier categoría para ver sus productos._")
                 reply = "\n".join(lines)
-                memory["last_details"] = reply
+                _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
                 return ChatResponse(reply=reply, session_id=session_id)
 
             matched_category = _match_category(msg)
             if matched_category:
-                memory["last_category"] = matched_category
+                _sset("last_category", str(matched_category))
                 rows = conn.execute(
                     "SELECT sku, nombre, precio_lista, descuento_efectivo FROM products WHERE category_id=? ORDER BY precio_lista",
                     (matched_category,),
@@ -885,12 +1005,12 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     reply = "\n".join(lines)
 
             if reply and "¿Quieres que envíe" not in reply:
-                memory["last_details"] = reply
+                _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
 
             if not reply:
-                if memory:
-                    memory.clear()
+                if _has_any():
+                    _sclear()
                 reply = (
                     "Hola, soy TechAssist de PC Factory.\n\n"
                     "Puedes preguntarme por:\n"
