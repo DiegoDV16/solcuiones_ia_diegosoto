@@ -39,7 +39,7 @@ def send_order_receipt(to_email: str, order: dict, items: list) -> bool:
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:20px">
 <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)">
 <tr><td style="background:#1a1a2e;padding:20px 30px">
-<span style="color:#e94560;font-size:24px;font-weight:bold">PC Factory</span>
+<span style="color:#e94560;font-size:24px;font-weight:bold">PC Factoría</span>
 <span style="color:#888;font-size:13px;float:right">Comprobante</span>
 </td></tr>
 <tr><td style="padding:30px">
@@ -61,7 +61,7 @@ def send_order_receipt(to_email: str, order: dict, items: list) -> bool:
 </p>
 </td></tr>
 <tr><td style="background:#fafafa;padding:15px 30px;border-top:1px solid #eee;text-align:center;font-size:12px;color:#888">
-PC Factory Chile — <a href="https://pcfactory.cl" style="color:#e94560">pcfactory.cl</a>
+PC Factoría Chile — <a href="https://pcfactory.cl" style="color:#e94560">pcfactory.cl</a>
 </td></tr>
 </table>
 </td></tr></table>
@@ -69,7 +69,7 @@ PC Factory Chile — <a href="https://pcfactory.cl" style="color:#e94560">pcfact
 </html>"""
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"PC Factory - ¡Compra confirmada! Orden #{order['id']}"
+    msg["Subject"] = f"PC Factoría - ¡Compra confirmada! Orden #{order['id']}"
     msg["From"] = SMTP_FROM
     msg["To"] = to_email
     msg.attach(MIMEText(f"Orden #{order['id']} - Total: ${order['total']:,.0f} CLP", "plain"))
@@ -97,7 +97,7 @@ def _build_html_body(body: str) -> str:
 <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)">
 <tr><td style="background:#1a1a2e;padding:20px 30px;text-align:center">
 <table width="100%"><tr>
-<td style="text-align:left"><span style="color:#e94560;font-size:24px;font-weight:bold">PC Factory</span></td>
+<td style="text-align:left"><span style="color:#e94560;font-size:24px;font-weight:bold">PC Factoría</span></td>
 <td style="text-align:right"><span style="color:#888;font-size:13px">TechAssist IA</span></td>
 </tr></table>
 </td></tr>
@@ -106,7 +106,7 @@ def _build_html_body(body: str) -> str:
 </td></tr>
 <tr><td style="background:#fafafa;padding:15px 30px;border-top:1px solid #eee;text-align:center;font-size:12px;color:#888">
 ¡Gracias por contactarnos!<br>
-PC Factory Chile — <a href="https://pcfactory.cl" style="color:#e94560">pcfactory.cl</a>
+PC Factoría Chile — <a href="https://pcfactory.cl" style="color:#e94560">pcfactory.cl</a>
 </td></tr>
 </table>
 </td></tr></table>

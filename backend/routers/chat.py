@@ -73,7 +73,7 @@ try:
 
         _doc = (
             "Notebook ideal para programación y gaming: Mínimo 16GB RAM, SSD 512GB, "
-            "GPU RTX 3050+. En Chile (PC Factory): Gama media: 600.000 - 900.000 CLP. "
+            "GPU RTX 3050+. En Chile (PC Factoría): Gama media: 600.000 - 900.000 CLP. "
             "Gama alta: 900.000 - 1.500.000 CLP."
         )
         _chunks = [_doc[i:i+200] for i in range(0, len(_doc), 200)]
@@ -187,7 +187,7 @@ try:
 
         tools = [revisar_requisitos_teoricos_notebooks, consultar_producto_avanzado, confirmar_compra_por_correo]
 
-        prompt = """Eres el asesor virtual de PC Factory Chile. Tu objetivo es vender.
+        prompt = """Eres el asesor virtual de PC Factoría Chile. Tu objetivo es vender.
 Usa tus herramientas para buscar productos, sugerir alternativas y procesar compras.
 Si un producto no está disponible, ofrece alternativas reales del catálogo.
 Si el cliente acepta una alternativa, llama confirmar_compra_por_correo con el SKU y la sucursal.
@@ -665,7 +665,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
 
             if any(p in msg for p in ["envío al día siguiente", "next day shipping", "envio rapido", "despacho"]):
                 reply = (
-                    "**Información de Despacho PC Factory**\n\n"
+                    "**Información de Despacho PC Factoría**\n\n"
                     "• **Despacho a domicilio:** 3-5 días hábiles ($4,990 CLP)\n"
                     "• **Retiro en tienda:** Gratis, 24 hrs después de la compra\n"
                     "• **Envío Express:** Antes de las 13:00 hrs, llega al día siguiente ($9,990 CLP)\n"
@@ -690,7 +690,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
             if any(g in msg for g in greeting_words) and len(msg) < 40:
                 _sclear()
                 reply = (
-                    "¡Hola! Soy TechAssist de PC Factory.\n\n"
+                    "¡Hola! Soy TechAssist de PC Factoría.\n\n"
                     "Puedo ayudarte con:\n"
                     "• Buscar productos por categoría (procesadores, GPUs, RAM, etc.)\n"
                     "• Consultar stock disponible\n"
@@ -860,17 +860,17 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                         return ChatResponse(reply=reply, session_id=session_id)
                     email_body = (
                         "¡Hola!\n\n"
-                        "Gracias por consultar en PC Factory. Aquí están los detalles que solicitaste:\n\n"
+                        "Gracias por consultar en PC Factoría. Aquí están los detalles que solicitaste:\n\n"
                         + ("─" * 40) + "\n"
                         + last_details
                         + "\n" + ("─" * 40) + "\n\n"
                         "Si tienes más dudas, responde este correo o vuelve a escribirme en la web.\n\n"
-                        "Saludos,\nTechAssist — PC Factory Chile"
+                        "Saludos,\nTechAssist — PC Factoría Chile"
                     )
                     try:
                         sent = send_text_email(
                             to_email=os.getenv("SMTP_FROM", "compus.factoryvd@gmail.com"),
-                            subject="PC Factory - Detalles de tu consulta",
+                            subject="PC Factoría - Detalles de tu consulta",
                             body=email_body,
                         )
                     except Exception as e:
@@ -941,7 +941,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     "SELECT COUNT(*) AS c FROM (SELECT sku FROM inventory GROUP BY sku HAVING SUM(cantidad) < 5)"
                 ).fetchone()["c"]
                 reply = (
-                    f"**Resumen de Stock PC Factory**\n\n"
+                    f"**Resumen de Stock PC Factoría**\n\n"
                     f"• Total productos: {products_count}\n"
                     f"• Unidades en inventario: {total:,}\n"
                     f"• Sucursales activas: {branches}\n"
@@ -1012,7 +1012,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                 if _has_any():
                     _sclear()
                 reply = (
-                    "Hola, soy TechAssist de PC Factory.\n\n"
+                    "Hola, soy TechAssist de PC Factoría.\n\n"
                     "Puedes preguntarme por:\n"
                     "• Categorías: procesadores, GPUs, RAM, almacenamiento, placas madre, etc.\n"
                     "• Ofertas y descuentos\n"

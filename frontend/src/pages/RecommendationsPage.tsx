@@ -40,7 +40,7 @@ export default function RecommendationsPage() {
         <Lightbulb size={24} className="text-yellow-500" /> Recomendaciones Inteligentes
       </h1>
       <p className="text-secondary-400 text-sm mb-8">
-        Sugerencias basadas en tu historial y productos populares en PC Factory.
+        Sugerencias basadas en tu historial y productos populares en PC Factoría.
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

@@ -75,7 +75,7 @@ async def get_recommendations(sku: str, limit: int = 4):
                 "descuento_efectivo": p["descuento_efectivo"],
                 "categoria": p["categoria"],
                 "total_stock": p["total_stock"],
-                "reason": "Producto popular en PC Factory",
+                "reason": "Producto popular en PC Factoría",
             })
             if len(results) >= limit:
                 break

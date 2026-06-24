@@ -90,11 +90,11 @@ INSERT INTO categories (id, nombre) VALUES (9, 'fuentes');
 INSERT INTO categories (id, nombre) VALUES (10, 'gabinetes');
 INSERT INTO categories (id, nombre) VALUES (11, 'refrigeracion');
 
-INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (1, 'SCL-CENTRO', 'PC Factory Santiago Centro', 'Av. Libertador Bernardo O''Higgins 100', 1, 1);
-INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (2, 'SCL-PROVIDENCIA', 'PC Factory Providencia', 'Av. Providencia 2050', 1, 2);
-INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (3, 'VLA-VINA', 'PC Factory Viña del Mar', 'Av. Libertad 430', 2, 3);
-INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (4, 'VLA-VALPO', 'PC Factory Valparaíso', 'Av. España 1650', 2, 4);
-INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (5, 'BIO-CONCE', 'PC Factory Concepción', 'Calle Chacabuco 700', 3, 5);
+INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (1, 'SCL-CENTRO', 'PC Factoría Santiago Centro', 'Av. Libertador Bernardo O''Higgins 100', 1, 1);
+INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (2, 'SCL-PROVIDENCIA', 'PC Factoría Providencia', 'Av. Providencia 2050', 1, 2);
+INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (3, 'VLA-VINA', 'PC Factoría Viña del Mar', 'Av. Libertad 430', 2, 3);
+INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (4, 'VLA-VALPO', 'PC Factoría Valparaíso', 'Av. España 1650', 2, 4);
+INSERT INTO branches (id, codigo, nombre, direccion, region_id, comuna_id) VALUES (5, 'BIO-CONCE', 'PC Factoría Concepción', 'Calle Chacabuco 700', 3, 5);
 
 INSERT INTO products (sku, nombre, descripcion, precio_lista, descuento_efectivo, category_id) VALUES ('CPU-AMD-R5-5600X', 'Procesador AMD Ryzen 5 5600X (6 Núcleos / 12 Hilos)', 'Procesador AMD Ryzen 5 5600X (6 Núcleos / 12 Hilos)', 169990, 0.08, 1);
 INSERT INTO products (sku, nombre, descripcion, precio_lista, descuento_efectivo, category_id) VALUES ('CPU-AMD-R7-5700X', 'Procesador AMD Ryzen 7 5700X (8 Núcleos / 16 Hilos)', 'Procesador AMD Ryzen 7 5700X (8 Núcleos / 16 Hilos)', 219990, 0.10, 1);
