@@ -1,4 +1,5 @@
 import os
+import re
 import smtplib
 import logging
 from pathlib import Path
@@ -87,8 +88,24 @@ PC Factoría Chile — <a href="https://pcfactory.cl" style="color:#e94560">pcfa
         return False
 
 
+def _strip_md(text: str) -> str:
+    """Remove markdown bold/italic/strikethrough markers for plain-text display."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
+    text = re.sub(r'_(.+?)_', r'\1', text)
+    return text
+
+
+def _md_to_html(text: str) -> str:
+    """Convert markdown bold/italic/strikethrough to HTML."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    text = re.sub(r'_(.+?)_', r'<em>\1</em>', text)
+    return text.replace("\n", "<br>")
+
+
 def _build_html_body(body: str) -> str:
-    content_html = body.replace("\n", "<br>")
+    content_html = _md_to_html(body)
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -122,7 +139,7 @@ def send_text_email(to_email: str, subject: str, body: str) -> bool:
     msg["Subject"] = subject
     msg["From"] = SMTP_FROM
     msg["To"] = to_email
-    msg.attach(MIMEText(body, "plain"))
+    msg.attach(MIMEText(_strip_md(body), "plain"))
     msg.attach(MIMEText(_build_html_body(body), "html"))
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:

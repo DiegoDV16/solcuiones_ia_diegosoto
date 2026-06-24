@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -304,7 +305,7 @@ async def chat_endpoint(req: ChatRequest):
     cached = response_cache.get(sanitized_msg, req.session_id)
     if cached:
         metrics.record_cache(hit=True)
-        return ChatResponse(reply=cached, session_id=req.session_id)
+        return ChatResponse(reply=_clean_md(cached), session_id=req.session_id)
 
     metrics.record_cache(hit=False)
     start_time = time.perf_counter()
@@ -358,7 +359,7 @@ async def chat_endpoint(req: ChatRequest):
             endpoint="/api/chat",
         )
         metrics.record_request("/api/chat", duration, req.session_id)
-        return ChatResponse(reply=reply, session_id=req.session_id)
+        return ChatResponse(reply=_clean_md(reply), session_id=req.session_id)
 
     except Exception as e:
         duration = (time.perf_counter() - start_time) * 1000
@@ -400,6 +401,13 @@ async def reset_chat(session_id: str = "default"):
     return {"status": "reset"}
 
 
+def _clean_md(text: str) -> str:
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
+    text = re.sub(r'_(.+?)_', r'\1', text)
+    return text
+
+
 BUILD_STRATEGIES = [
     {"name": "Máximo Rendimiento", "desc": True,  "gpu_first": False},
     {"name": "Enfoque GPU",       "desc": True,  "gpu_first": True},
@@ -414,6 +422,10 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
     msg = message.lower().strip()
 
     reply = ""
+
+    def _cr(text: str) -> ChatResponse:
+        return ChatResponse(reply=_clean_md(text), session_id=session_id)
+
     try:
         with sqlite3.connect(str(db_path)) as conn:
             conn.row_factory = sqlite3.Row
@@ -460,6 +472,13 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     (session_id,),
                 ).fetchone()
                 return row is not None
+
+            def _is_junk(text: str) -> bool:
+                if len(text) <= 1:
+                    return True
+                if len(text) <= 2 and text in ("aa", "bb", "cc", "xx", "zz", "kk", "jj", "qq", "ww", "vv", "uu", "pp", "aaa"):
+                    return True
+                return False
 
             CATEGORY_KEYWORDS = {
                 1: ["procesador", "cpu"],
@@ -672,7 +691,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     "• **Envío Gratis:** En compras sobre $100,000 CLP\n\n"
                     "¿Quieres verificar disponibilidad en alguna sucursal?"
                 )
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
             if any(p in msg for p in ["verificar compatibilidad", "check compatibility", "compatible"]):
                 reply = (
@@ -684,7 +703,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     "• '¿Qué RAM es compatible con mi placa madre?'\n\n"
                     "También puedes visitar la página del producto y usar el chat integrado."
                 )
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
             greeting_words = ["hola", "buenas", "buen dia", "buena tarde", "buena noche", "saludos", "hey", "que tal"]
             if any(g in msg for g in greeting_words) and len(msg) < 40:
@@ -698,7 +717,37 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     "• Recomendaciones de armado\n\n"
                     "¿Qué estás buscando el día de hoy?"
                 )
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
+
+            # --- Gibberish / single-letter / too-short detection ---
+            last_msg = _sget("last_msg")
+            _sset("last_msg", msg)
+            is_repeat = (msg == last_msg and msg != "otra opcion" and msg != "otra opción")
+
+            if is_repeat:
+                reply = (
+                    "Ya me preguntaste eso mismo. Si necesitas algo distinto, "
+                    "puedes preguntarme por productos, ofertas, stock o presupuestos para armar una PC."
+                )
+                return _cr(reply)
+
+            if _is_junk(msg):
+                if _has_any():
+                    reply = "No entendí tu mensaje. Escribe un producto, una categoría o pregúntame por ofertas. ¿Necesitas ayuda con algo en específico?"
+                else:
+                    reply = (
+                        "Hola, soy TechAssist de PC Factoría. "
+                        "Puedes preguntarme por productos (procesadores, GPUs, RAM, etc.), "
+                        "stock disponible, ofertas, o decirme un presupuesto para armar una PC. "
+                        "¿En qué te ayudo?"
+                    )
+                return _cr(reply)
+
+            # "no" / "no gracias" without email context → don't search
+            pure_no = msg in ("no", "no gracias", "nop", "nope", "nel", "noo", "nooo")
+            if pure_no and not _sget("last_details"):
+                reply = "De acuerdo. Si necesitas algo más, aquí estoy. ¿Buscas algún producto en particular?"
+                return _cr(reply)
 
             wants_cheapest = any(p in msg for p in ["mas barato", "más barato", "más económico", "mas economico", "menor precio", "menos precio", "mas economico"])
             wants_expensive = any(p in msg for p in ["mas caro", "más caro", "mayor precio", "más costoso", "mas costoso", "mas caro"])
@@ -755,7 +804,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     reply = f"No encontré productos que coincidan con tu búsqueda."
                 _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
             if "oferta" in msg or "descuento" in msg or "promo" in msg:
                 rows = conn.execute(
@@ -774,7 +823,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     reply = "Actualmente no hay productos con descuento activo."
                 _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
             if "barato" in msg or "mejor precio" in msg:
                 row = conn.execute("""
@@ -794,9 +843,8 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                 )
                 _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
-            import re
             pure_number = re.match(r"^\d{4,}$", msg.replace(".", "").replace(" ", ""))
             wants_budget = any(p in msg for p in ["presupuesto", "armar", "arma una pc", "arma un pc", "armame", "build", "configuracion", "configuración", "arreglo", "nuevo armado", "nueva pc"])
             if wants_budget or "presupuesto" in msg or "presupuesto de" in msg or pure_number:
@@ -823,10 +871,10 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     strategy = BUILD_STRATEGIES[build_count % len(BUILD_STRATEGIES)]
                     _sset(last_budget_key, str(build_count + 1))
                     reply = _build_pc_by_budget(budget, conn, strategy)
-                    return ChatResponse(reply=reply, session_id=session_id)
+                    return _cr(reply)
                 else:
                     reply = "¿Cuál es tu presupuesto? Dime un monto como '300000' o '500 mil' y armaré una PC compatible."
-                    return ChatResponse(reply=reply, session_id=session_id)
+                    return _cr(reply)
 
             # "otra opción" → request next build strategy
             if any(p in msg for p in ["otra opcion", "otra opción", "alternativa", "variante", "diferente", "otra configuracion", "otra configuración"]):
@@ -838,7 +886,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     strategy = BUILD_STRATEGIES[build_count % len(BUILD_STRATEGIES)]
                     _sset(last_budget_key, str(build_count + 1))
                     reply = _build_pc_by_budget(prev_budget, conn, strategy)
-                    return ChatResponse(reply=reply, session_id=session_id)
+                    return _cr(reply)
 
             last_details = _sget("last_details")
             if last_details:
@@ -853,11 +901,11 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                             "Si necesitas otra copia, vuelve a realizar tu consulta y solicita el envío nuevamente."
                         )
                         _sdel("last_details")
-                        return ChatResponse(reply=reply, session_id=session_id)
+                        return _cr(reply)
                     from backend.services.email_service import send_text_email, is_email_configured
                     if not is_email_configured():
                         reply = "El envío de correos no está configurado. Revisa el archivo .env con las credenciales SMTP."
-                        return ChatResponse(reply=reply, session_id=session_id)
+                        return _cr(reply)
                     email_body = (
                         "¡Hola!\n\n"
                         "Gracias por consultar en PC Factoría. Aquí están los detalles que solicitaste:\n\n"
@@ -886,11 +934,11 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                     else:
                         reply = "No se pudo enviar el correo. Intenta más tarde o verifica la configuración SMTP."
                     _sdel("last_details")
-                    return ChatResponse(reply=reply, session_id=session_id)
+                    return _cr(reply)
                 if dont_email:
                     _sdel("last_details")
                     reply = "Entendido. ¿Necesitas algo más?"
-                    return ChatResponse(reply=reply, session_id=session_id)
+                    return _cr(reply)
 
             wants_stock = "stock" in msg
             wants_stock_detail = "stock" in msg and ("de " in msg or len(msg) < 30)
@@ -915,7 +963,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                         _sset("last_category", str(cat_id))
                         _sset("last_details", reply)
                         reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                        return ChatResponse(reply=reply, session_id=session_id)
+                        return _cr(reply)
 
                 if wants_stock and not wants_stock_detail and _sget("last_category") is not None:
                     cat_id = int(_sget("last_category"))
@@ -932,7 +980,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                         reply = "\n".join(lines)
                         _sset("last_details", reply)
                         reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                        return ChatResponse(reply=reply, session_id=session_id)
+                        return _cr(reply)
 
                 total = conn.execute("SELECT SUM(cantidad) AS s FROM inventory").fetchone()["s"]
                 products_count = conn.execute("SELECT COUNT(*) AS c FROM products").fetchone()["c"]
@@ -950,7 +998,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                 )
                 _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
             if "todo" in msg or "categoria" in msg or "list" in msg or "categoría" in msg:
                 lines = ["**Categorias Disponibles:**\n"]
@@ -963,7 +1011,7 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                 reply = "\n".join(lines)
                 _sset("last_details", reply)
                 reply += "\n\n📧 ¿Quieres que envíe estos detalles a tu correo? Responde 'sí' o 'no'."
-                return ChatResponse(reply=reply, session_id=session_id)
+                return _cr(reply)
 
             matched_category = _match_category(msg)
             if matched_category:
@@ -1022,4 +1070,4 @@ def _fallback_chat(message: str, session_id: str) -> ChatResponse:
                 )
     except Exception as e:
         reply = f"Error al consultar: {e}"
-    return ChatResponse(reply=reply, session_id=session_id)
+    return _cr(reply)
