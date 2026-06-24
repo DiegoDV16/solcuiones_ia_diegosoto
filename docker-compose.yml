@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     environment:
-      - CORS_ORIGINS=http://localhost,http://localhost:80,http://localhost:443,https://localhost,http://frontend
+      - CORS_ORIGINS=http://localhost,http://localhost:80,http://localhost:443,https://localhost,http://frontend,http://3.87.87.23
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
